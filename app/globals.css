@@ -1,0 +1,395 @@
+:root {
+  --ink: #15201c;
+  --muted: #66716b;
+  --paper: #f6f4ee;
+  --surface: #fffdf8;
+  --line: #d9ddd7;
+  --green: #135d42;
+  --green-soft: #dcece3;
+  --orange: #d5662f;
+  --shadow: 0 18px 50px rgba(26, 39, 33, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(19, 93, 66, 0.08), transparent 28rem),
+    var(--paper);
+  font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+main {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+}
+
+.topbar {
+  min-height: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(21, 32, 28, 0.12);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: white;
+  background: var(--green);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.phase-badge,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #4f5c55;
+  background: rgba(255, 253, 248, 0.72);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.8fr);
+  gap: 70px;
+  align-items: center;
+  min-height: 630px;
+  padding: 80px 0;
+}
+
+.eyebrow,
+.card-label {
+  margin: 0 0 18px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 760px;
+  margin-bottom: 28px;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: clamp(46px, 6vw, 78px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+.lead {
+  max-width: 680px;
+  margin-bottom: 34px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.85;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.status-pill.warning {
+  border-color: rgba(213, 102, 47, 0.28);
+  color: #9d4520;
+  background: #fff3eb;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+.milestone-card {
+  padding: 34px;
+  border: 1px solid rgba(21, 32, 28, 0.1);
+  border-radius: 26px;
+  background: rgba(255, 253, 248, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.milestone-card h2 {
+  margin-bottom: 24px;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.progress-track {
+  height: 7px;
+  margin-bottom: 30px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #e4e7e2;
+}
+
+.progress-track span {
+  display: block;
+  width: 10%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.milestone-list {
+  display: grid;
+  gap: 4px;
+}
+
+.milestone {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px solid #e6e8e4;
+}
+
+.milestone-number {
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.milestone strong,
+.milestone small {
+  display: block;
+}
+
+.milestone strong {
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.milestone small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.done .state {
+  color: var(--green);
+  font-weight: 750;
+}
+
+.chains {
+  padding: 96px 0;
+  border-top: 1px solid rgba(21, 32, 28, 0.12);
+}
+
+.section-heading {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 0.58fr);
+  gap: 40px;
+  align-items: end;
+  margin-bottom: 42px;
+}
+
+.section-heading h2,
+.boundary h2 {
+  margin-bottom: 0;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: clamp(34px, 4vw, 50px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.section-heading > p,
+.boundary > p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.chain-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.chain-card {
+  min-height: 250px;
+  padding: 30px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 253, 248, 0.56);
+}
+
+.chain-index {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.chain-card h3 {
+  margin: 40px 0 14px;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.chain-card p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.chain-card .chain-summary {
+  margin-bottom: 9px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.boundary {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 0.7fr);
+  gap: 70px;
+  align-items: center;
+  margin: 20px 0 96px;
+  padding: 48px;
+  border-radius: 26px;
+  color: #f4f8f5;
+  background: var(--green);
+}
+
+.boundary .eyebrow,
+.boundary > p {
+  color: rgba(244, 248, 245, 0.72);
+}
+
+.boundary h2 {
+  font-size: clamp(32px, 4vw, 46px);
+}
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 30px 0 40px;
+  border-top: 1px solid rgba(21, 32, 28, 0.12);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+footer span:first-child {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+@media (max-width: 860px) {
+  .hero,
+  .section-heading,
+  .boundary {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    gap: 44px;
+    padding: 64px 0;
+  }
+
+  .section-heading,
+  .boundary {
+    gap: 24px;
+  }
+}
+
+@media (max-width: 620px) {
+  main {
+    width: min(100% - 28px, 1180px);
+  }
+
+  .phase-badge {
+    display: none;
+  }
+
+  .hero {
+    min-height: 0;
+    padding: 54px 0 70px;
+  }
+
+  h1 {
+    font-size: 44px;
+  }
+
+  .lead {
+    font-size: 16px;
+  }
+
+  .milestone-card {
+    padding: 24px;
+  }
+
+  .chains {
+    padding: 72px 0;
+  }
+
+  .chain-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chain-card {
+    min-height: 220px;
+    padding: 24px;
+  }
+
+  .boundary {
+    margin-bottom: 70px;
+    padding: 32px 26px;
+  }
+
+  footer {
+    gap: 20px;
+    flex-direction: column;
+  }
+}
