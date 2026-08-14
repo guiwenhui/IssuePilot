@@ -13,3 +13,7 @@ export function schedulePoll(
 export function shouldRetryPoll(status?: number): boolean {
   return status === undefined || status >= 500;
 }
+
+export function shouldContinueTaskPolling(status: string): boolean {
+  return status !== "cloned" && status !== "failed";
+}

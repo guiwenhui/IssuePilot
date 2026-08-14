@@ -1,3 +1,4 @@
+from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -44,4 +45,23 @@ class TaskService:
 
         if task is None:
             raise TaskNotFoundError()
+        return task
+
+    async def set_status(
+        self,
+        task_id: UUID,
+        status: TaskStatus,
+        failure_code: Optional[str] = None,
+        failure_message: Optional[str] = None,
+    ) -> Task:
+        task = await self.get_task(task_id)
+        task.status = status
+        task.failure_code = failure_code
+        task.failure_message = failure_message
+        try:
+            await self._session.commit()
+            await self._session.refresh(task)
+        except (SQLAlchemyError, OSError) as error:
+            await self._session.rollback()
+            raise DatabaseUnavailableError() from error
         return task

@@ -4,8 +4,8 @@ const callChains = [
   {
     index: "01",
     title: "请求链",
-    summary: "浏览器 → Next.js → FastAPI → Service → PostgreSQL",
-    description: "把页面操作转换为经过校验、可持久化的任务请求。",
+    summary: "浏览器 → FastAPI → Queue → Git → 隔离工作区",
+    description: "把任务转换为经过校验、可追踪的公开仓库快照。",
   },
   {
     index: "02",
@@ -35,7 +35,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">IP</span>
           <span>IssuePilot</span>
         </a>
-        <span className="phase-badge">M1 · 最小闭环</span>
+        <span className="phase-badge">M2 · 仓库隔离</span>
       </header>
 
       <section className="hero" id="top">
@@ -55,7 +55,7 @@ export default function Home() {
         <aside className="milestone-card" aria-labelledby="milestone-title">
           <p className="card-label">BUILD PROGRESS</p>
           <h2 id="milestone-title">从架构基线开始</h2>
-          <div className="progress-track" aria-label="项目完成进度 20%">
+          <div className="progress-track" aria-label="项目完成进度 30%">
             <span />
           </div>
           <div className="milestone-list">
@@ -69,20 +69,25 @@ export default function Home() {
               <div><strong>最小闭环</strong><small>任务创建、保存与状态展示</small></div>
               <span className="state">完成</span>
             </div>
+            <div className="milestone next">
+              <span className="milestone-number">M2</span>
+              <div><strong>仓库隔离</strong><small>安全校验、浅克隆与文件树</small></div>
+              <span className="state">验收中</span>
+            </div>
           </div>
         </aside>
       </section>
 
       <section className="task-entry" aria-labelledby="task-entry-title">
         <div className="task-entry-copy">
-          <p className="eyebrow">M1 · CREATE A TASK</p>
-          <h2 id="task-entry-title">提交第一条真实请求链</h2>
+          <p className="eyebrow">M2 · CLONE A REPOSITORY</p>
+          <h2 id="task-entry-title">创建一份可核对的仓库快照</h2>
           <p>
-            FastAPI 校验输入并将任务保存到 PostgreSQL。创建成功后，详情页会按固定间隔读取权威状态。
+            FastAPI 校验 GitHub 地址并保存任务，后台在隔离目录完成浅克隆。详情页会展示固定 Commit 和文件树。
           </p>
           <div className="scope-note">
-            <strong>M1 边界</strong>
-            <span>不克隆仓库、不启动 Agent、不执行代码。</span>
+            <strong>M2 边界</strong>
+            <span>只读取公开仓库；不启动 Agent、不解析 AST、不执行代码。</span>
           </div>
         </div>
         <TaskCreateForm />
@@ -111,11 +116,11 @@ export default function Home() {
       <section className="boundary" aria-labelledby="boundary-title">
         <div>
           <p className="eyebrow">CURRENT BOUNDARY</p>
-          <h2 id="boundary-title">最小闭环已接入，执行能力仍保持关闭。</h2>
+          <h2 id="boundary-title">仓库读取已隔离，代码执行仍保持关闭。</h2>
         </div>
         <p>
-          页面现在可以创建并轮询持久化任务，但不会访问仓库或触发 Agent。
-          仓库克隆、代码分析和工作流执行会在后续里程碑逐项通过审批接入。
+          页面现在可以校验并浅克隆公开 GitHub 仓库，但不会加载或执行其中的代码。
+          AST、检索和 Agent 工作流会在后续里程碑逐项通过审批接入。
         </p>
       </section>
 

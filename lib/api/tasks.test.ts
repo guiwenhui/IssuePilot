@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ApiError, createTask, fetchTask } from "./tasks.ts";
+import {
+  ApiError,
+  createTask,
+  fetchRepositoryTree,
+  fetchTask,
+} from "./tasks.ts";
 
 
 const task = {
@@ -9,6 +14,7 @@ const task = {
   repository_url: "https://github.com/example/project.git",
   issue: "Fix the parser",
   status: "created" as const,
+  failure: null,
   created_at: "2026-08-13T10:00:00Z",
   updated_at: "2026-08-13T10:00:00Z",
 };
@@ -73,4 +79,32 @@ test("API errors preserve structured field details", async () => {
       return true;
     },
   );
+});
+
+
+test("fetchRepositoryTree requests the dedicated fresh endpoint", async () => {
+  let capturedRequest: Request | undefined;
+  const tree = {
+    task_id: task.task_id,
+    canonical_url: task.repository_url,
+    commit_sha: "a".repeat(40),
+    file_count: 1,
+    total_bytes: 12,
+    truncated: false,
+    cloned_at: "2026-08-14T10:00:00Z",
+    entries: [{ path: "README.md", kind: "file" as const, size_bytes: 12 }],
+  };
+  globalThis.fetch = async (input, init) => {
+    capturedRequest = new Request(input, init);
+    return Response.json(tree);
+  };
+
+  const result = await fetchRepositoryTree(task.task_id);
+
+  assert.deepEqual(result, tree);
+  assert.equal(
+    new URL(capturedRequest?.url ?? "").pathname,
+    `/api/v1/tasks/${task.task_id}/repository/tree`,
+  );
+  assert.equal(capturedRequest?.cache, "no-store");
 });

@@ -1,5 +1,8 @@
 import logging
-from typing import Any, Dict, List, Optional
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from uuid import UUID
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -7,8 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes.tasks import router as tasks_router
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
+from app.db.session import session_factory
+from app.services.git_client import GitClient
+from app.services.repository_service import (
+    RepositoryNotReadyError,
+    RepositoryService,
+    WorkspaceInconsistentError,
+)
 from app.services.task_service import DatabaseUnavailableError, TaskNotFoundError
+from app.services.workspace import WorkspaceLimits, WorkspaceManager
+from app.workers.repository_queue import RepositoryQueue
 
 
 logger = logging.getLogger(__name__)
@@ -37,17 +49,133 @@ def validation_details(error: RequestValidationError) -> List[Dict[str, Any]]:
     for item in error.errors():
         location = [str(part) for part in item["loc"] if part != "body"]
         details.append(
-            {
-                "field": ".".join(location) or "request",
-                "message": item["msg"],
-            }
+            {"field": ".".join(location) or "request", "message": item["msg"]}
         )
     return details
 
 
+def create_repository_runtime(
+    settings: Settings,
+) -> Tuple[GitClient, WorkspaceManager, RepositoryQueue]:
+    workspace = WorkspaceManager(
+        Path(settings.repository_workspace_root),
+        WorkspaceLimits(
+            settings.max_workspace_bytes,
+            settings.max_tracked_files,
+            settings.max_tree_entries,
+            settings.max_tree_depth,
+        ),
+    )
+    git_client = GitClient(settings.clone_timeout_seconds)
+
+    async def process_repository(task_id: UUID) -> None:
+        async with session_factory() as session:
+            service = RepositoryService(session, git_client, workspace)
+            await service.clone_task(task_id)
+
+    queue = RepositoryQueue(
+        settings.clone_queue_capacity,
+        process_repository,
+        settings.repository_clone_enabled,
+    )
+    return git_client, workspace, queue
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    await application.state.repository_queue.start()
+    yield
+    await application.state.repository_queue.stop()
+
+
+async def handle_validation_error(
+    request: Request, error: RequestValidationError
+) -> JSONResponse:
+    del request
+    return error_response(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "VALIDATION_ERROR",
+        "请求参数不合法",
+        validation_details(error),
+    )
+
+
+async def handle_task_not_found(
+    request: Request, error: TaskNotFoundError
+) -> JSONResponse:
+    del request, error
+    return error_response(status.HTTP_404_NOT_FOUND, "TASK_NOT_FOUND", "任务不存在")
+
+
+async def handle_database_unavailable(
+    request: Request, error: DatabaseUnavailableError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "DATABASE_UNAVAILABLE",
+        "任务存储暂时不可用",
+    )
+
+
+async def handle_repository_not_ready(
+    request: Request, error: RepositoryNotReadyError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "REPOSITORY_NOT_READY",
+        "仓库尚未克隆完成",
+    )
+
+
+async def handle_workspace_inconsistent(
+    request: Request, error: WorkspaceInconsistentError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "WORKSPACE_INCONSISTENT",
+        "仓库工作区与任务快照不一致",
+    )
+
+
+async def handle_internal_error(request: Request, error: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled API error for %s %s",
+        request.method,
+        request.url.path,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    return error_response(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "INTERNAL_ERROR",
+        "服务发生未预期错误",
+    )
+
+
+def register_exception_handlers(application: FastAPI) -> None:
+    application.add_exception_handler(RequestValidationError, handle_validation_error)
+    application.add_exception_handler(TaskNotFoundError, handle_task_not_found)
+    application.add_exception_handler(
+        DatabaseUnavailableError, handle_database_unavailable
+    )
+    application.add_exception_handler(
+        RepositoryNotReadyError, handle_repository_not_ready
+    )
+    application.add_exception_handler(
+        WorkspaceInconsistentError, handle_workspace_inconsistent
+    )
+    application.add_exception_handler(Exception, handle_internal_error)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
-    application = FastAPI(title=settings.app_name)
+    git_client, workspace, queue = create_repository_runtime(settings)
+    application = FastAPI(title=settings.app_name, lifespan=lifespan)
+    application.state.git_client = git_client
+    application.state.workspace = workspace
+    application.state.repository_queue = queue
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
@@ -56,57 +184,7 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type"],
     )
     application.include_router(tasks_router)
-
-    @application.exception_handler(RequestValidationError)
-    async def handle_validation_error(
-        request: Request, error: RequestValidationError
-    ) -> JSONResponse:
-        del request
-        return error_response(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "VALIDATION_ERROR",
-            "请求参数不合法",
-            validation_details(error),
-        )
-
-    @application.exception_handler(TaskNotFoundError)
-    async def handle_task_not_found(
-        request: Request, error: TaskNotFoundError
-    ) -> JSONResponse:
-        del request, error
-        return error_response(
-            status.HTTP_404_NOT_FOUND,
-            "TASK_NOT_FOUND",
-            "任务不存在",
-        )
-
-    @application.exception_handler(DatabaseUnavailableError)
-    async def handle_database_unavailable(
-        request: Request, error: DatabaseUnavailableError
-    ) -> JSONResponse:
-        del request, error
-        return error_response(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "DATABASE_UNAVAILABLE",
-            "任务存储暂时不可用",
-        )
-
-    @application.exception_handler(Exception)
-    async def handle_internal_error(
-        request: Request, error: Exception
-    ) -> JSONResponse:
-        logger.error(
-            "Unhandled API error for %s %s",
-            request.method,
-            request.url.path,
-            exc_info=(type(error), error, error.__traceback__),
-        )
-        return error_response(
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            "服务发生未预期错误",
-        )
-
+    register_exception_handlers(application)
     return application
 
 

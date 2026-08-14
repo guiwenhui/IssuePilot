@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Dict, Optional
 
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,6 +18,8 @@ class Task(Base):
     repository_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     issue_text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    failure_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    failure_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -26,3 +29,9 @@ class Task(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    @property
+    def failure(self) -> Optional[Dict[str, str]]:
+        if self.failure_code is None or self.failure_message is None:
+            return None
+        return {"code": self.failure_code, "message": self.failure_message}

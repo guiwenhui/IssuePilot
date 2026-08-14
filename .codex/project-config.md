@@ -14,5 +14,6 @@
 ## Milestone rules
 
 - M1 implements task creation, PostgreSQL persistence, task lookup, and browser polling only.
+- M2 implements strict GitHub URL validation, an in-process single-consumer clone queue, isolated shallow clones, persisted repository snapshots, and a file-tree API only.
 - Later milestone capabilities must not be implemented early.
 - Development changes remain uncommitted until explicit user approval.
