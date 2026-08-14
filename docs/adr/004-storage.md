@@ -13,6 +13,8 @@ M1 使用 PostgreSQL 保存任务业务数据。M4 在同一数据库引入 pgve
 
 索引策略在获得真实评测数据后选择；不在 M0 预设 HNSW 或 IVFFlat 一定优于另一方。
 
+M1 使用 SQLAlchemy 2 异步 ORM、asyncpg 和显式 Alembic migration。首个 `tasks` 表保存 UUID、仓库 URL、Issue 文本、`created` 状态以及创建/更新时间。应用启动不自动创建或升级表，Schema 变更必须通过可审查、可回退的 migration 执行。
+
 ## Alternatives
 
 ### SQLite
@@ -33,3 +35,4 @@ M1 使用 PostgreSQL 保存任务业务数据。M4 在同一数据库引入 pgve
 - PostgreSQL Schema 需要清楚区分任务、事件、Checkpoint 元数据和代码索引。
 - 超大规模向量检索能力不是本阶段目标；规模增长后可基于指标迁移。
 - M1 不需要 pgvector，避免把未使用能力提前写入实现。
+- 数据库不可用时事务回滚，API 返回结构化 `503`，不会伪造一个只存在于浏览器内的任务。

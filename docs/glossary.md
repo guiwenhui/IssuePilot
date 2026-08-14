@@ -1,11 +1,16 @@
 # IssuePilot 术语表
 
-本文面向第一次接触 AI 全栈与 Agent 工作流的读者。示例描述的是 IssuePilot 的目标能力，不表示 M0 已经实现。
+本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1 已实现能力和后续目标能力。
 
 | 术语 | 初学者解释 | 在 IssuePilot 中的含义 |
 |---|---|---|
 | API | 两个程序之间约定好的通信入口，规定请求怎么传、响应怎么回。 | Next.js 通过 FastAPI API 创建和查询任务；M1 首次实现。 |
 | API 契约 | API 对字段、类型、状态码和错误格式的明确约定。 | Pydantic 校验仓库 URL 与 Issue，OpenAPI 记录接口结构。 |
+| DTO | Data Transfer Object，专门用于系统边界之间传输数据的结构。 | M1 的任务响应对外暴露 `task_id`、`issue` 等稳定字段，不让数据库列名直接决定 API。 |
+| ORM | Object-Relational Mapping，用对象和类型描述数据库表及查询。 | M1 使用 SQLAlchemy ORM 映射 PostgreSQL 的 `tasks` 表。 |
+| Migration | 可按顺序执行和回退的数据库结构变更脚本。 | M1 使用 Alembic 显式创建 `tasks` 表，应用启动不会自动改表。 |
+| CORS | 浏览器对跨来源请求的安全规则，服务端需明确允许可信网页来源。 | M1 只允许配置的 Next.js Origin 调用 FastAPI，并限制到所需方法和请求头。 |
+| 异步 Session | 一次异步数据库工作单元，管理查询、提交和回滚。 | Task Service 使用它创建和查询任务；数据库故障时回滚并映射为 `503`。 |
 | 轮询（Polling） | 浏览器每隔一段时间主动询问服务器“状态变了吗”。实现简单，但会产生重复请求。 | M1 用轮询读取任务状态，先验证最小调用链。 |
 | SSE | Server-Sent Events，服务器通过一条长连接持续向浏览器推送单向事件。 | 后续实时展示 Agent 进度的候选升级，不属于 M1。 |
 | Worker | 专门在 HTTP 请求之外运行耗时任务的后台执行者。 | M2 起负责克隆和后续索引、工作流任务；M1 不启动耗时任务。 |

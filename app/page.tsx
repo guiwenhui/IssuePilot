@@ -1,3 +1,5 @@
+import TaskCreateForm from "@/components/task-create-form";
+
 const callChains = [
   {
     index: "01",
@@ -33,7 +35,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">IP</span>
           <span>IssuePilot</span>
         </a>
-        <span className="phase-badge">M0 · 设计基线已完成</span>
+        <span className="phase-badge">M1 · 最小闭环</span>
       </header>
 
       <section className="hero" id="top">
@@ -45,15 +47,15 @@ export default function Home() {
             Patch、测试和审查组织成可追踪的工作流。
           </p>
           <div className="hero-actions" aria-label="项目当前状态">
-            <span className="status-pill warning"><span className="dot" />API 尚未连接</span>
-            <span className="status-pill">M1 待实现</span>
+            <span className="status-pill success"><span className="dot" />API 契约已接入</span>
+            <span className="status-pill">PostgreSQL 权威状态</span>
           </div>
         </div>
 
         <aside className="milestone-card" aria-labelledby="milestone-title">
           <p className="card-label">BUILD PROGRESS</p>
           <h2 id="milestone-title">从架构基线开始</h2>
-          <div className="progress-track" aria-label="项目完成进度 10%">
+          <div className="progress-track" aria-label="项目完成进度 20%">
             <span />
           </div>
           <div className="milestone-list">
@@ -65,10 +67,25 @@ export default function Home() {
             <div className="milestone next">
               <span className="milestone-number">M1</span>
               <div><strong>最小闭环</strong><small>任务创建、保存与状态展示</small></div>
-              <span className="state">下一步</span>
+              <span className="state">完成</span>
             </div>
           </div>
         </aside>
+      </section>
+
+      <section className="task-entry" aria-labelledby="task-entry-title">
+        <div className="task-entry-copy">
+          <p className="eyebrow">M1 · CREATE A TASK</p>
+          <h2 id="task-entry-title">提交第一条真实请求链</h2>
+          <p>
+            FastAPI 校验输入并将任务保存到 PostgreSQL。创建成功后，详情页会按固定间隔读取权威状态。
+          </p>
+          <div className="scope-note">
+            <strong>M1 边界</strong>
+            <span>不克隆仓库、不启动 Agent、不执行代码。</span>
+          </div>
+        </div>
+        <TaskCreateForm />
       </section>
 
       <section className="chains" aria-labelledby="chains-title">
@@ -94,11 +111,11 @@ export default function Home() {
       <section className="boundary" aria-labelledby="boundary-title">
         <div>
           <p className="eyebrow">CURRENT BOUNDARY</p>
-          <h2 id="boundary-title">这里是前端模板，不是功能演示。</h2>
+          <h2 id="boundary-title">最小闭环已接入，执行能力仍保持关闭。</h2>
         </div>
         <p>
-          页面尚未提交真实仓库与 Issue，也不会触发 API、轮询或 Agent。
-          M1 将在这个边界上接入 FastAPI 与 PostgreSQL，完成第一条可验证的请求链。
+          页面现在可以创建并轮询持久化任务，但不会访问仓库或触发 Agent。
+          仓库克隆、代码分析和工作流执行会在后续里程碑逐项通过审批接入。
         </p>
       </section>
 

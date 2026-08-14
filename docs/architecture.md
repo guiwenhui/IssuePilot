@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-本文描述 M10 之前逐步形成的目标架构。当前 M0 仅形成设计文档；图中组件不能被理解为已经实现。每项能力的首次落地里程碑见下文。
+本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1 的 Next.js、FastAPI、Task Service、PostgreSQL 与轮询链已经实现并通过产品验收；Worker、仓库工作区、LangGraph 等仍是后续目标。每项能力的首次落地里程碑见下文。
 
 ## 组件关系
 
@@ -45,6 +45,14 @@ Next.js 负责界面渲染和用户交互。FastAPI 负责业务规则和 API �
 
 选择该边界是为了让业务规则只有一个权威实现，并直接复用 Python 的 AI 与代码分析生态。
 
+M1 的具体边界如下：
+
+- `app/` 与 `components/` 包含 App Router 页面和 Client Components；浏览器直接请求 `NEXT_PUBLIC_API_BASE_URL` 指向的 FastAPI。
+- FastAPI 只允许配置中的前端 Origin，并只开放 M1 所需的 `GET`、`POST` 与 `Content-Type`。
+- `backend/app/api` 定义 HTTP 契约，`backend/app/services` 负责事务和业务异常，`backend/app/models` 定义持久化模型。
+- SQLAlchemy 使用异步 Session 和 asyncpg；数据库连接失败由 Service 映射为稳定的 `503 DATABASE_UNAVAILABLE`。
+- Alembic migration 必须显式运行，应用启动不会调用 `create_all` 或隐式修改 Schema。
+
 ## 任务状态模型
 
 目标状态集合统一为：
@@ -85,6 +93,8 @@ stateDiagram-v2
 
 执行状态可因可恢复错误进入 `retrying`，再回到原阶段；超过重试上限进入 `failed`。用户主动终止进入 `cancelled`。M1 只需要实现创建、持久化和查询所需的最小状态子集，后续里程碑再逐步启用其余转换。
 
+M1 实际只启用 `created`，且没有状态转换入口。`tasks` 表字段为：UUID 主键 `id`、`repository_url`、`issue_text`、`status`、带时区的 `created_at` 与 `updated_at`。API DTO 对外使用 `task_id` 和 `issue`，避免把数据库列名直接变成永久外部契约。
+
 ## 数据所有权
 
 - PostgreSQL 是任务状态、事件与恢复元数据的权威来源。
@@ -95,6 +105,10 @@ stateDiagram-v2
 ## 后台执行演进
 
 M1 只创建并保存任务，不启动耗时工作流。M2 可先使用简单后台执行验证克隆调用链。Redis 本身不是任务系统；只有在观察到排队、重启恢复或并发隔离的真实需要后，才评估 Redis + RQ。Celery 和 Temporal 均保留为替代方案，不在当前目标中预先引入。
+
+## M1 部署形态
+
+本地开发运行三个独立进程/服务：浏览器访问 `localhost:3000` 的 Next.js，FastAPI 监听 `localhost:8000`，PostgreSQL 16 容器映射到 `localhost:54329`。这只是 M1 的开发拓扑；统一编排和 Docker Compose 留到 M10。
 
 ## 安全边界
 
