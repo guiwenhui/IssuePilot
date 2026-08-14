@@ -13,6 +13,8 @@ class TaskStatus(str, Enum):
     QUEUED = "queued"
     CLONING = "cloning"
     CLONED = "cloned"
+    INDEXING = "indexing"
+    INDEXED = "indexed"
     FAILED = "failed"
 
 

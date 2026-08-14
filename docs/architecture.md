@@ -2,18 +2,20 @@
 
 ## 文档说明
 
-本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1 已验收；M2 的安全 URL 校验、进程内 Worker、Git 适配器、隔离工作区与仓库快照已经实现并待验收。LangGraph、代码检索和 Patch 等仍是后续目标。
+本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1、M2 已验收；M3 的隔离 Python AST Parser、规范化代码索引和结构预览已经实现并待验收。LangGraph、混合检索和 Patch 等仍是后续目标。
 
 ## 组件关系
 
 ```mermaid
 flowchart LR
-    User["用户"] --> Web["Next.js Web\nM1 / M2"]
-    Web -->|"HTTP API；轮询状态与读取树"| API["FastAPI API\nM1 / M2"]
+    User["用户"] --> Web["Next.js Web\nM1 / M2 / M3"]
+    Web -->|"HTTP API；轮询状态与读取证据"| API["FastAPI API\nM1 / M2 / M3"]
     API --> Service["Task Service\nM1"]
     Service --> DB["PostgreSQL\nM1；pgvector M4"]
     Service --> Worker["进程内单消费者队列\nM2；RQ 待评估"]
     Worker --> Repo["隔离仓库工作区\nM2；Worktree M7"]
+    Worker --> Parser["隔离 Python AST Parser\nM3"]
+    Parser --> DB
     Worker --> Graph["LangGraph Workflow\nM5"]
     Graph --> Model["单一 LLM\nM5"]
     Graph --> DB
@@ -36,6 +38,8 @@ flowchart LR
 | pgvector | 保存代码向量并支持相似度召回 | 替代业务数据库或执行重排 | M4 |
 | Worker | 在请求之外执行克隆、索引和工作流 | 接收浏览器请求、绕过审批 | M2 |
 | Repo Workspace | 隔离克隆、文件读取；后续创建 Worktree、应用 Patch、执行测试 | 修改用户原仓库 | M2/M7 |
+| Python Parser | 只读解析 tracked Python 源码并输出结构 DTO | Import/执行仓库代码、访问数据库、改变任务状态 | M3 |
+| Code Index Service | 复核 Commit、调用 Parser、原子保存结构化索引 | 克隆仓库、做 M4 检索或调用模型 | M3 |
 | LangGraph | 显式节点、状态、分支、Checkpoint、Interrupt、有限循环 | 绕过工具权限、决定是否批准高风险动作 | M5/M6 |
 | 单一 LLM | 需求分析、规划、Patch 建议和审查建议 | 直接批准高风险操作、宣称未执行的测试通过 | M5 |
 
@@ -45,7 +49,7 @@ Next.js 负责界面渲染和用户交互。FastAPI 负责业务规则和 API �
 
 选择该边界是为了让业务规则只有一个权威实现，并直接复用 Python 的 AI 与代码分析生态。
 
-M1/M2 的具体边界如下：
+M1/M2/M3 的具体边界如下：
 
 - `app/` 与 `components/` 包含 App Router 页面和 Client Components；浏览器直接请求 `NEXT_PUBLIC_API_BASE_URL` 指向的 FastAPI。
 - FastAPI 只允许配置中的前端 Origin，并只开放当前所需的 `GET`、`POST` 与 `Content-Type`。
@@ -54,6 +58,8 @@ M1/M2 的具体边界如下：
 - Alembic migration 必须显式运行，应用启动不会调用 `create_all` 或隐式修改 Schema。
 - Repository Queue 只负责背压与单消费者调度；Repository Service 编排 Git 与数据库，GitClient 不修改业务状态。
 - GitClient 使用固定 argv 和隔离环境，WorkspaceManager 只接受由服务端根目录与 UUID 推导的路径。
+- Code Index Service 复用 Snapshot、HEAD 和 clean 核对；Parser Client 只用固定 Python argv 和受限 JSON 协议启动子进程。
+- Parser 不接收 URL 或数据库凭据，只读取父进程提供的 tracked 普通 `.py` 路径，不导入仓库模块。
 
 ## 任务状态模型
 
@@ -65,6 +71,7 @@ queued
 cloning
 cloned
 indexing
+indexed
 analyzing
 waiting_approval
 patching
@@ -85,7 +92,8 @@ stateDiagram-v2
     queued --> cloning
     cloning --> cloned
     cloned --> indexing
-    indexing --> analyzing
+    indexing --> indexed
+    indexed --> analyzing
     analyzing --> waiting_approval
     waiting_approval --> patching: 用户批准
     waiting_approval --> cancelled: 用户拒绝
@@ -99,10 +107,13 @@ stateDiagram-v2
 
 M2 实际启用 `created → queued → cloning → cloned`，克隆或队列失败进入 `failed`。`cloned` 只表示隔离仓库已准备好，不表示整个 Issue 已完成。`tasks` 保存业务状态和失败证据，`repository_snapshots` 保存 canonical URL、Commit、计数和受限 Manifest。
 
+M3 新任务实际启用 `cloning → indexing → indexed`：Repository Snapshot 与 `indexing` 在同一事务生效，避免浏览器观察到短暂 `cloned` 后错误停止轮询。升级前的 M2 `cloned` 保持历史终态。`indexed` 表示结构化 AST 索引已绑定固定 Commit，不表示完成检索或 Issue 分析。
+
 ## 数据所有权
 
 - PostgreSQL 是任务状态、事件与恢复元数据的权威来源。
 - Git 隔离工作区是仓库文件与本地 Patch 的权威来源。
+- PostgreSQL `code_indexes/code_files/code_symbols/code_imports` 是结构化解析产物的查询来源，但必须与 Repository Snapshot 和真实工作区 Commit 核对。
 - LangGraph Checkpoint 保存工作流节点状态，但不能替代任务业务表。
 - 浏览器缓存不是权威状态；刷新页面后应从 FastAPI 重新读取。
 - Tree API 返回前核对 Snapshot、任务目录、HEAD SHA 和 clean 状态；不一致时返回 `409`。
@@ -118,6 +129,8 @@ M2 使用容量 20、单消费者的进程内 `asyncio.Queue`。它能控制并�
 ## 安全边界
 
 - M2 仅克隆公开 `github.com` HTTPS 仓库，拒绝凭据、端口、查询、Fragment 和重定向。
+- M3 Parser 运行在独立 Python 子进程，只读 tracked 普通 `.py`，不跟随 symlink、不加载 Submodule、不 Import 或执行源码。
+- M3 限制 Python 文件数、单文件/总字节、结构条目与解析时间；子进程错误只返回受限摘要。
 - 所有仓库操作在受控临时目录或 Worktree 中执行。
 - Git 通过参数数组运行，关闭凭据交互和系统/全局配置；浅克隆且不初始化 Submodule/LFS。
 - 每次克隆限制为 60 秒、100 MiB、5,000 tracked entries 和 25 层目录；这些值只能由服务端配置。

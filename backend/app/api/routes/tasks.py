@@ -3,10 +3,12 @@ from uuid import UUID
 from fastapi import APIRouter, Response, status
 
 from app.api.dependencies import (
+    CodeIndexServiceDependency,
     RepositoryQueueDependency,
     RepositoryServiceDependency,
     TaskServiceDependency,
 )
+from app.schemas.code_index import CodeStructureResponse
 from app.schemas.repository import RepositoryTreeResponse
 from app.schemas.task import ErrorResponse, TaskCreate, TaskResponse, TaskStatus
 from app.workers.repository_queue import CloneQueueFullError
@@ -82,3 +84,23 @@ async def get_repository_tree(
     tree = await service.get_tree(task_id)
     response.headers["Cache-Control"] = "no-store"
     return tree
+
+
+@router.get(
+    "/{task_id}/code/structure",
+    response_model=CodeStructureResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def get_code_structure(
+    task_id: UUID,
+    service: CodeIndexServiceDependency,
+    response: Response,
+) -> CodeStructureResponse:
+    structure = await service.get_structure(task_id)
+    response.headers["Cache-Control"] = "no-store"
+    return structure

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
+  CodeStructure,
+  fetchCodeStructure,
   fetchRepositoryTree,
   fetchTask,
   RepositoryTree,
@@ -20,21 +22,45 @@ import {
 type TaskStatusState = {
   task?: Task;
   repositoryTree?: RepositoryTree;
+  codeStructure?: CodeStructure;
   error: string;
   lastSyncedAt?: Date;
 };
 
 async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
   const task = await fetchTask(taskId, signal);
-  const repositoryTree =
-    task.status === "cloned"
-      ? await fetchRepositoryTree(taskId, signal)
-      : undefined;
+  let repositoryTree: RepositoryTree | undefined;
+  let codeStructure: CodeStructure | undefined;
+  if (task.status === "indexed") {
+    [repositoryTree, codeStructure] = await Promise.all([
+      fetchRepositoryTree(taskId, signal),
+      fetchCodeStructure(taskId, signal),
+    ]);
+  } else if (task.status === "cloned") {
+    repositoryTree = await fetchRepositoryTree(taskId, signal);
+  } else if (task.status === "failed") {
+    repositoryTree = await fetchTreeAfterFailure(taskId, signal);
+  }
   return {
     task,
     repositoryTree,
+    codeStructure,
     shouldContinue: shouldContinueTaskPolling(task.status),
   };
+}
+
+async function fetchTreeAfterFailure(
+  taskId: string,
+  signal: AbortSignal,
+): Promise<RepositoryTree | undefined> {
+  try {
+    return await fetchRepositoryTree(taskId, signal);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "REPOSITORY_NOT_READY") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 function retryForError(error: unknown): boolean {

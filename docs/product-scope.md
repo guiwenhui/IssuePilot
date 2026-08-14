@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 状态：M0、M1 已验收；M2 已实现、待产品验收
+- 状态：M0、M1、M2 已验收；M3 已实现、待产品验收
 - 日期：2026-08-14
 - 性质：产品范围基线，并同步标注各里程碑的真实落地状态
 
@@ -82,9 +82,13 @@ IssuePilot 帮助学习者和开发者看清一次需求从输入到验证的完
 
 M1 已于 2026-08-14 通过产品验收：Next.js 表单可创建任务，FastAPI 使用 Pydantic 校验输入，Task Service 通过异步 SQLAlchemy 将任务写入 PostgreSQL，详情页每 3 秒非重叠轮询一次任务状态。
 
-M2 已完成工程实现并进入验收：首版严格限制到公开 `github.com` 仓库；进程内单消费者队列在 HTTP 请求外执行 `ls-remote`、浅克隆、资源限制和文件树快照，任务状态可进入 `queued`、`cloning`、`cloned` 或 `failed`。页面在业务终态停止轮询，并展示固定 Commit、文件清单或持久化失败原因。
+M2 已实现并通过验收：首版严格限制到公开 `github.com` 仓库；进程内单消费者队列在 HTTP 请求外执行 `ls-remote`、浅克隆、资源限制和文件树快照，任务状态可进入 `queued`、`cloning`、`cloned` 或 `failed`。页面在业务终态停止轮询，并展示固定 Commit、文件清单或持久化失败原因。
 
 M2 不初始化 Submodule、不下载 LFS、不解析或执行仓库代码，也不支持私有认证或 GitHub 以外的 Host。Redis 与 RQ 仍未引入；进程重启会丢失内存队列，这是本里程碑的已知限制，待真实运行数据出现后再评估升级。
+
+M3 已完成工程实现并进入验收：新任务在 Repository Snapshot 落库后进入 `indexing`，隔离 Python 子进程使用标准库 AST 提取 tracked `.py` 文件、类、函数、方法、Import 和测试结构，结果以 `indexed` 终态绑定固定 Commit 保存到 PostgreSQL。单文件语法错误保留为警告；超时、超限、无 Python 文件或工作区不一致保存任务级失败证据。
+
+M3 不做关键词或向量检索，不引入 pgvector、LangGraph 或 LLM，不解析第三方依赖，也不导入或执行仓库代码。升级前已经处于 `cloned` 的 M2 历史任务不会自动补排索引。
 
 ## 人工审批边界
 

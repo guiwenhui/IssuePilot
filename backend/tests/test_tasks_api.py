@@ -6,18 +6,27 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api.dependencies import (
+    get_code_index_service,
     get_repository_queue,
     get_repository_service,
     get_task_service,
 )
 from app.main import create_app
 from app.models.task import Task
+from app.schemas.code_index import (
+    CodeStructureCounts,
+    CodeStructureFile,
+    CodeStructureResponse,
+    ParsedImport,
+    ParsedSymbol,
+)
 from app.schemas.repository import RepositoryTreeResponse
 from app.schemas.task import TaskStatus
 from app.services.repository_service import (
     RepositoryNotReadyError,
     WorkspaceInconsistentError,
 )
+from app.services.code_index_service import CodeIndexNotReadyError
 from app.services.task_service import DatabaseUnavailableError, TaskNotFoundError
 from app.workers.repository_queue import CloneQueueFullError
 
@@ -78,6 +87,53 @@ class FullRepositoryQueue:
 
     def enqueue(self, task_id: UUID) -> bool:
         raise CloneQueueFullError()
+
+
+class StubCodeIndexService:
+    def __init__(self, task_id: UUID) -> None:
+        self.error: Optional[Exception] = None
+        self.structure = CodeStructureResponse(
+            task_id=task_id,
+            commit_sha="a" * 40,
+            parser_version="py-ast-v1",
+            python_version="3.9.6",
+            indexed_at=datetime.now(timezone.utc),
+            counts=CodeStructureCounts(
+                files=1,
+                parsed_files=1,
+                symbols=1,
+                imports=1,
+                tests=0,
+                parse_errors=0,
+            ),
+            truncated=False,
+            files=[
+                CodeStructureFile(
+                    path="service.py",
+                    module_name="service",
+                    is_test_file=False,
+                    parse_status="parsed",
+                    symbols=[
+                        ParsedSymbol(
+                            local_id=1,
+                            kind="class",
+                            name="Service",
+                            qualified_name="Service",
+                            start_line=1,
+                            end_line=2,
+                        )
+                    ],
+                    imports=[
+                        ParsedImport(kind="import", module="os", line=1)
+                    ],
+                )
+            ],
+        )
+
+    async def get_structure(self, task_id: UUID) -> CodeStructureResponse:
+        if self.error:
+            raise self.error
+        return self.structure
 
 
 def make_task() -> Task:
@@ -272,3 +328,61 @@ async def test_create_task_persists_queue_capacity_failure(
     assert response.status_code == 201
     assert response.json()["status"] == "failed"
     assert response.json()["failure"]["code"] == "CLONE_QUEUE_FULL"
+
+
+@pytest.mark.asyncio
+async def test_code_structure_returns_index_and_disables_cache(
+    service: StubTaskService,
+) -> None:
+    code_service = StubCodeIndexService(service.task.id)
+    app = create_app()
+    app.dependency_overrides[get_code_index_service] = lambda: code_service
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/api/v1/tasks/{service.task.id}/code/structure"
+        )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["files"][0]["symbols"][0]["qualified_name"] == "Service"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status_code", "expected_code"),
+    [
+        (CodeIndexNotReadyError(), 409, "CODE_INDEX_NOT_READY"),
+        (WorkspaceInconsistentError(), 409, "WORKSPACE_INCONSISTENT"),
+        (TaskNotFoundError(), 404, "TASK_NOT_FOUND"),
+        (DatabaseUnavailableError(), 503, "DATABASE_UNAVAILABLE"),
+    ],
+)
+async def test_code_structure_returns_structured_errors(
+    service: StubTaskService,
+    error: Exception,
+    status_code: int,
+    expected_code: str,
+) -> None:
+    code_service = StubCodeIndexService(service.task.id)
+    code_service.error = error
+    app = create_app()
+    app.dependency_overrides[get_code_index_service] = lambda: code_service
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/api/v1/tasks/{service.task.id}/code/structure"
+        )
+
+    assert response.status_code == status_code
+    assert response.json()["error"]["code"] == expected_code
+
+
+@pytest.mark.asyncio
+async def test_code_structure_rejects_invalid_uuid(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/tasks/not-a-uuid/code/structure")
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"

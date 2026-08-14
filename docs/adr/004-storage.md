@@ -17,6 +17,8 @@ M1 使用 SQLAlchemy 2 异步 ORM、asyncpg 和显式 Alembic migration。首个
 
 M2 在 `tasks` 增加失败码/消息和状态索引，并新增一对一 `repository_snapshots`，保存 canonical URL、Commit SHA、计数和受限 JSONB Manifest。Snapshot 是可查询证据，Git 隔离目录仍是文件事实来源；Tree API 必须核对两者。
 
+M3 新增 `code_indexes`、`code_files`、`code_symbols`、`code_imports` 规范化表。它们保存与 Repository Snapshot Commit 绑定的 Python 结构，便于 M4 按路径、符号和 Import 查询；不提前保存 Embedding。读取结构前仍核对真实工作区。
+
 ## Alternatives
 
 ### SQLite
