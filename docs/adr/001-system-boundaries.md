@@ -22,6 +22,8 @@ M1 实现采用浏览器直接调用 FastAPI：表单与状态面板是 Next.js 
 
 M2 在同一 FastAPI 进程加入容量受限的单消费者 Queue，但保持 Worker 边界：Router 只建任务和入队，Repository Service 编排克隆，GitClient 只运行固定 Git 命令，WorkspaceManager 只管理受控路径。这个进程内实现是可替换适配器，不把队列逻辑散落到 HTTP 路由。
 
+M3 在同一 Queue processor 后半段调用 Code Index Service。Parser Client 只负责隔离子进程协议，AST Runner 不访问数据库或改变任务状态；Code Index Service 才能复核工作区并持久化结构。Next.js 只展示后端 DTO，不在浏览器重复解析规则。
+
 ## Alternatives
 
 ### Next.js 全栈一体化

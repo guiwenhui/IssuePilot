@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ApiError,
   createTask,
+  fetchCodeStructure,
   fetchRepositoryTree,
   fetchTask,
 } from "./tasks.ts";
@@ -38,6 +39,76 @@ test("createTask posts the API contract", async () => {
     repository_url: task.repository_url,
     issue: task.issue,
   });
+});
+
+
+test("fetchCodeStructure requests the dedicated M3 endpoint", async () => {
+  let capturedRequest: Request | undefined;
+  const structure = {
+    task_id: task.task_id,
+    commit_sha: "a".repeat(40),
+    parser_version: "py-ast-v1",
+    python_version: "3.9.6",
+    indexed_at: "2026-08-14T11:00:00Z",
+    counts: {
+      files: 1,
+      parsed_files: 1,
+      symbols: 1,
+      imports: 1,
+      tests: 0,
+      parse_errors: 0,
+    },
+    truncated: false,
+    files: [
+      {
+        path: "service.py",
+        module_name: "service",
+        is_test_file: false,
+        parse_status: "parsed",
+        parse_error: null,
+        symbols: [
+          {
+            local_id: 1,
+            parent_local_id: null,
+            kind: "class",
+            name: "Service",
+            qualified_name: "Service",
+            start_line: 1,
+            end_line: 2,
+            signature: null,
+            decorators: [],
+            is_async: false,
+            is_test: false,
+            is_fixture: false,
+          },
+        ],
+        imports: [
+          {
+            kind: "import",
+            module: "os",
+            imported_name: null,
+            alias: null,
+            relative_level: 0,
+            scope: null,
+            line: 1,
+          },
+        ],
+      },
+    ],
+  };
+  globalThis.fetch = async (input, init) => {
+    capturedRequest = new Request(input, init);
+    return Response.json(structure);
+  };
+
+  const result = await fetchCodeStructure(task.task_id);
+
+  assert.deepEqual(result, structure);
+  assert.equal(
+    new URL(capturedRequest?.url ?? "").pathname,
+    `/api/v1/tasks/${task.task_id}/code/structure`,
+  );
+  assert.equal(capturedRequest?.cache, "no-store");
 });
 
 

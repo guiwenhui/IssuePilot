@@ -53,14 +53,18 @@ class RepositoryService:
         self._git = git_client
         self._workspace = workspace
 
-    async def clone_task(self, task_id: UUID) -> None:
+    async def clone_task(
+        self,
+        task_id: UUID,
+        success_status: TaskStatus = TaskStatus.CLONED,
+    ) -> None:
         task = await self._get_task(task_id)
         if task.status != TaskStatus.QUEUED:
             return
         await self._set_task_status(task, TaskStatus.CLONING)
         staging = self._workspace.create_staging(task_id)
         try:
-            await self._clone_and_persist(task, staging)
+            await self._clone_and_persist(task, staging, success_status)
         except _known_clone_errors() as error:
             self._workspace.cleanup_staging(staging)
             code = _failure_code(error)
@@ -72,15 +76,13 @@ class RepositoryService:
             )
 
     async def get_tree(self, task_id: UUID) -> RepositoryTreeResponse:
-        task = await self._get_task(task_id)
-        if task.status != TaskStatus.CLONED:
-            raise RepositoryNotReadyError()
+        await self._get_task(task_id)
         try:
             snapshot = await self._session.get(RepositorySnapshot, task_id)
         except (SQLAlchemyError, OSError) as error:
             raise DatabaseUnavailableError() from error
         if snapshot is None:
-            raise WorkspaceInconsistentError()
+            raise RepositoryNotReadyError()
         repository = self._workspace.repository_path(task_id)
         await self._verify_workspace(repository, snapshot.commit_sha)
         return RepositoryTreeResponse(
@@ -94,7 +96,9 @@ class RepositoryService:
             entries=snapshot.tree_manifest,
         )
 
-    async def _clone_and_persist(self, task: Task, staging: Path) -> None:
+    async def _clone_and_persist(
+        self, task: Task, staging: Path, success_status: TaskStatus
+    ) -> None:
         await self._git.ensure_remote_available(task.repository_url)
         await self._git.clone(task.repository_url, staging)
         commit_sha = await self._git.head_sha(staging)
@@ -110,7 +114,7 @@ class RepositoryService:
             tree_manifest=manifest.entries,
         )
         self._session.add(snapshot)
-        await self._set_task_status(task, TaskStatus.CLONED)
+        await self._set_task_status(task, success_status)
 
     async def _get_task(self, task_id: UUID) -> Task:
         try:
@@ -138,11 +142,17 @@ class RepositoryService:
             raise DatabaseUnavailableError() from error
 
     async def _verify_workspace(self, repository: Path, expected_sha: str) -> None:
-        if not repository.is_dir():
-            raise WorkspaceInconsistentError()
-        actual_sha = await self._git.head_sha(repository)
-        if actual_sha != expected_sha or not await self._git.is_clean(repository):
-            raise WorkspaceInconsistentError()
+        await verify_workspace(self._git, repository, expected_sha)
+
+
+async def verify_workspace(
+    git_client: GitClient, repository: Path, expected_sha: str
+) -> None:
+    if not repository.is_dir():
+        raise WorkspaceInconsistentError()
+    actual_sha = await git_client.head_sha(repository)
+    if actual_sha != expected_sha or not await git_client.is_clean(repository):
+        raise WorkspaceInconsistentError()
 
 
 def _known_clone_errors() -> tuple[type[Exception], ...]:

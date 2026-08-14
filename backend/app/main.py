@@ -12,7 +12,10 @@ from fastapi.responses import JSONResponse
 from app.api.routes.tasks import router as tasks_router
 from app.core.config import Settings, get_settings
 from app.db.session import session_factory
+from app.parsers.python_ast import ParserLimits
+from app.services.parser_client import ParserClient
 from app.services.git_client import GitClient
+from app.services.code_index_service import CodeIndexNotReadyError
 from app.services.repository_service import (
     RepositoryNotReadyError,
     RepositoryService,
@@ -21,6 +24,7 @@ from app.services.repository_service import (
 from app.services.task_service import DatabaseUnavailableError, TaskNotFoundError
 from app.services.workspace import WorkspaceLimits, WorkspaceManager
 from app.workers.repository_queue import RepositoryQueue
+from app.workers.repository_pipeline import RepositoryPipeline
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +60,13 @@ def validation_details(error: RequestValidationError) -> List[Dict[str, Any]]:
 
 def create_repository_runtime(
     settings: Settings,
-) -> Tuple[GitClient, WorkspaceManager, RepositoryQueue]:
+) -> Tuple[
+    GitClient,
+    WorkspaceManager,
+    ParserClient,
+    ParserLimits,
+    RepositoryQueue,
+]:
     workspace = WorkspaceManager(
         Path(settings.repository_workspace_root),
         WorkspaceLimits(
@@ -67,18 +77,31 @@ def create_repository_runtime(
         ),
     )
     git_client = GitClient(settings.clone_timeout_seconds)
+    parser_client = ParserClient(settings.parser_timeout_seconds)
+    parser_limits = ParserLimits(
+        settings.max_python_files,
+        settings.max_python_file_bytes,
+        settings.max_python_total_bytes,
+        settings.max_code_entities,
+    )
+    pipeline = RepositoryPipeline(
+        git_client,
+        workspace,
+        parser_client,
+        parser_limits,
+        settings.max_code_preview_entries,
+    )
 
     async def process_repository(task_id: UUID) -> None:
         async with session_factory() as session:
-            service = RepositoryService(session, git_client, workspace)
-            await service.clone_task(task_id)
+            await pipeline.process(session, task_id)
 
     queue = RepositoryQueue(
         settings.clone_queue_capacity,
         process_repository,
         settings.repository_clone_enabled,
     )
-    return git_client, workspace, queue
+    return git_client, workspace, parser_client, parser_limits, queue
 
 
 @asynccontextmanager
@@ -140,6 +163,17 @@ async def handle_workspace_inconsistent(
     )
 
 
+async def handle_code_index_not_ready(
+    request: Request, error: CodeIndexNotReadyError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "CODE_INDEX_NOT_READY",
+        "Python 代码结构索引尚未完成",
+    )
+
+
 async def handle_internal_error(request: Request, error: Exception) -> JSONResponse:
     logger.error(
         "Unhandled API error for %s %s",
@@ -166,15 +200,23 @@ def register_exception_handlers(application: FastAPI) -> None:
     application.add_exception_handler(
         WorkspaceInconsistentError, handle_workspace_inconsistent
     )
+    application.add_exception_handler(
+        CodeIndexNotReadyError, handle_code_index_not_ready
+    )
     application.add_exception_handler(Exception, handle_internal_error)
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    git_client, workspace, queue = create_repository_runtime(settings)
+    git_client, workspace, parser_client, parser_limits, queue = (
+        create_repository_runtime(settings)
+    )
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
     application.state.git_client = git_client
     application.state.workspace = workspace
+    application.state.parser_client = parser_client
+    application.state.parser_limits = parser_limits
+    application.state.max_code_preview_entries = settings.max_code_preview_entries
     application.state.repository_queue = queue
     application.add_middleware(
         CORSMiddleware,

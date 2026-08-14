@@ -1,8 +1,8 @@
 # IssuePilot
 
-IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0、M1 已通过产品验收；M2 已实现并待验收。用户可提交公开 GitHub 仓库和 Issue，后台在受控目录完成浅克隆，页面展示 PostgreSQL 中的业务状态、固定 Commit 和真实文件树。
+IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0、M1、M2 已通过产品验收；M3 已实现并待验收。用户可提交公开 GitHub 仓库和 Issue，后台在受控目录完成浅克隆和 Python AST 解析，页面展示 PostgreSQL 中的业务状态、固定 Commit、真实文件树和结构化代码证据。
 
-M2 只读取公开仓库，不解析 AST、不启动 Agent，也不执行仓库代码。后续能力及边界见 [`docs/product-scope.md`](docs/product-scope.md)。
+M3 只读取 Git tracked Python 源码并提取结构，不做检索、不启动 Agent，也不导入或执行仓库代码。后续能力及边界见 [`docs/product-scope.md`](docs/product-scope.md)。
 
 ## 当前架构
 
@@ -13,6 +13,8 @@ M2 只读取公开仓库，不解析 AST、不启动 Agent，也不执行仓库�
 - PostgreSQL 16：任务业务状态的权威来源。
 - 进程内单消费者队列：在 HTTP 请求外串行执行 M2 克隆；服务重启不会恢复内存队列。
 - Git CLI + 隔离工作区：以固定参数浅克隆，工作区是真实仓库文件的权威来源。
+- 隔离 Python Parser：以固定 argv 子进程运行标准库 AST，限制文件、字节、条目和时间。
+- PostgreSQL 代码索引：保存与固定 Commit 绑定的文件、符号、Import 和测试结构。
 
 ## 本地运行
 
@@ -82,9 +84,10 @@ M2 只读取公开仓库，不解析 AST、不启动 Agent，也不执行仓库�
 - `POST /api/v1/tasks`：创建任务并放入仓库队列，成功返回 `201`、`Location` 与任务 DTO。
 - `GET /api/v1/tasks/{task_id}`：查询已持久化任务，响应禁止缓存。
 - `GET /api/v1/tasks/{task_id}/repository/tree`：在核对工作区与 Commit 后返回仓库快照。
+- `GET /api/v1/tasks/{task_id}/code/structure`：在核对索引、Snapshot 与真实工作区后返回受限 Python 结构预览。
 - 错误使用统一 `{ "error": { "code", "message", "details" } }` 结构；输入错误为 `422`，任务不存在为 `404`，快照未就绪/不一致为 `409`，数据库不可用为 `503`。
 
-M2 首版只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。默认工作区为 `/tmp/issuepilot-workspaces`，资源限制和 `REPOSITORY_CLONE_ENABLED` 见 [`.env.example`](.env.example)。仓库内容不会被导入、执行或初始化 Submodule/LFS。
+M3 继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。默认工作区为 `/tmp/issuepilot-workspaces`，克隆与 AST 资源限制见 [`.env.example`](.env.example)。仓库内容不会被导入、执行或初始化 Submodule/LFS；Parser 只读取 tracked 普通 `.py` 文件。
 
 ## 验证命令
 

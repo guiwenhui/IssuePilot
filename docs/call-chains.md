@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是调用链及其逐步落地计划。M1 请求链已验收；M2 仓库获取链已实现并待验收。检索、Agent、恢复等能力仍在后续里程碑引入。
+以下是调用链及其逐步落地计划。M1 请求链和 M2 仓库获取链已验收；M3 结构化代码链已实现并待验收。完整检索、Agent、恢复等能力仍在后续里程碑引入。
 
 ## 1. 请求链
 
@@ -91,7 +91,37 @@ M2 把“请求错误”和“任务业务失败”分开：不安全 URL 在任
 
 页面在 `created/queued/cloning` 继续非重叠轮询，在 `cloned/failed` 停止；`cloned` 只读取一次 Tree API。Tree API 的网络错误或 `5xx` 可继续低频重试，永久 `4xx` 停止。
 
-## 3. 检索链
+## 3. Python 结构化链
+
+首次落地：M3。
+
+```mermaid
+sequenceDiagram
+    participant Queue as Repository Queue
+    participant Service as Code Index Service
+    participant DB as PostgreSQL
+    participant Git as Git/Workspace
+    participant Parser as Isolated Python Parser
+    participant Web as Next.js
+
+    Queue->>DB: Snapshot + cloning → indexing
+    Queue->>Service: index_task(task_id)
+    Service->>DB: 读取 Task + Repository Snapshot
+    Service->>Git: 核对目录、HEAD SHA、clean、tracked entries
+    Service->>Parser: 固定 argv + 受限请求文件
+    Parser->>Git: 只读 tracked 普通 .py
+    Parser->>Parser: ast.parse + Visitor
+    Parser-->>Service: 文件、符号、Import、测试、文件级警告
+    Service->>DB: 单事务保存结构 + indexing → indexed
+    Web->>DB: 经 FastAPI 轮询任务
+    Web->>Service: GET code/structure
+    Service->>Git: 再次核对真实工作区
+    Service-->>Web: Commit + 受限结构预览
+```
+
+M3 新任务在 `created/queued/cloning/indexing` 继续轮询，在 `indexed/failed` 停止。历史 M2 `cloned` 仍是终态。解析错误分两级：单文件编码/语法问题作为索引警告；没有可解析 Python、超时、超限、Parser 协议错误或工作区不一致使任务进入 `failed`。任何情况下都不 Import 或执行仓库代码。
+
+## 4. 检索链
 
 结构化代码首次落地：M3；完整混合检索首次落地：M4。
 
@@ -110,7 +140,7 @@ flowchart LR
 
 正常输出必须带文件路径、符号与来源，不能只返回模型总结。若召回不足，系统可在限定次数内扩大查询或 Top-K；仍不足则保存检索证据并进入 `failed` 或人工处理，而不是臆造代码上下文。
 
-## 4. Agent 链
+## 5. Agent 链
 
 分析与规划首次落地：M5；审批与恢复首次落地：M6；Patch 和测试首次落地：M7；审查修复环首次落地：M8。
 
@@ -134,7 +164,7 @@ flowchart TD
 
 LangGraph 节点不是让多个角色自由聊天，而是让每一步的输入、输出和下一步显式可见。审批节点通过 Interrupt 暂停；用户决定后从 Checkpoint 恢复。
 
-## 5. 失败链
+## 6. 失败链
 
 基本错误契约从 M1 开始；跨节点 Checkpoint 恢复在 M6 落地；有限修复循环在 M8 落地。
 

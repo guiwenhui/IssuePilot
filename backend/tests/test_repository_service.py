@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -105,14 +106,41 @@ async def test_clone_task_maps_public_access_failure_and_cleans_staging(
 
 
 @pytest.mark.asyncio
-async def test_repository_tree_requires_cloned_task(tmp_path: Path) -> None:
+async def test_repository_tree_requires_snapshot(tmp_path: Path) -> None:
     task = make_task(TaskStatus.CLONING)
     session = Mock()
-    session.get = AsyncMock(return_value=task)
+    session.get = AsyncMock(side_effect=[task, None])
     service = RepositoryService(session, FakeGitClient(), make_workspace(tmp_path))
 
     with pytest.raises(RepositoryNotReadyError):
         await service.get_tree(task.id)
+
+
+@pytest.mark.asyncio
+async def test_repository_tree_allows_failed_task_with_snapshot(
+    tmp_path: Path,
+) -> None:
+    task = make_task(TaskStatus.FAILED)
+    snapshot = RepositorySnapshot(
+        task_id=task.id,
+        canonical_url=task.repository_url,
+        commit_sha="a" * 40,
+        file_count=1,
+        total_bytes=5,
+        cloned_at=datetime.now(timezone.utc),
+        tree_manifest=[
+            {"path": "README.md", "kind": "file", "size_bytes": 5}
+        ],
+    )
+    session = Mock()
+    session.get = AsyncMock(side_effect=[task, snapshot])
+    workspace = make_workspace(tmp_path)
+    workspace.repository_path(task.id).mkdir(parents=True)
+    service = RepositoryService(session, FakeGitClient(), workspace)
+
+    tree = await service.get_tree(task.id)
+
+    assert tree.commit_sha == "a" * 40
 
 
 @pytest.mark.asyncio

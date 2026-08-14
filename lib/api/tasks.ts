@@ -1,4 +1,11 @@
-export type TaskStatus = "created" | "queued" | "cloning" | "cloned" | "failed";
+export type TaskStatus =
+  | "created"
+  | "queued"
+  | "cloning"
+  | "cloned"
+  | "indexing"
+  | "indexed"
+  | "failed";
 
 export type TaskFailure = {
   code: string;
@@ -30,6 +37,59 @@ export type RepositoryTree = {
   truncated: boolean;
   cloned_at: string;
   entries: RepositoryTreeEntry[];
+};
+
+export type CodeSymbol = {
+  local_id: number;
+  parent_local_id: number | null;
+  kind: "class" | "function" | "method";
+  name: string;
+  qualified_name: string;
+  start_line: number;
+  end_line: number;
+  signature: string | null;
+  decorators: string[];
+  is_async: boolean;
+  is_test: boolean;
+  is_fixture: boolean;
+};
+
+export type CodeImport = {
+  kind: "import" | "from";
+  module: string | null;
+  imported_name: string | null;
+  alias: string | null;
+  relative_level: number;
+  scope: string | null;
+  line: number;
+};
+
+export type CodeStructureFile = {
+  path: string;
+  module_name: string | null;
+  is_test_file: boolean;
+  parse_status: "parsed" | "syntax_error" | "read_error";
+  parse_error: string | null;
+  symbols: CodeSymbol[];
+  imports: CodeImport[];
+};
+
+export type CodeStructure = {
+  task_id: string;
+  commit_sha: string;
+  parser_version: string;
+  python_version: string;
+  indexed_at: string;
+  counts: {
+    files: number;
+    parsed_files: number;
+    symbols: number;
+    imports: number;
+    tests: number;
+    parse_errors: number;
+  };
+  truncated: boolean;
+  files: CodeStructureFile[];
 };
 
 export type CreateTaskInput = {
@@ -123,4 +183,15 @@ export async function fetchRepositoryTree(
     { method: "GET", cache: "no-store", signal },
   );
   return parseResponse<RepositoryTree>(response);
+}
+
+export async function fetchCodeStructure(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<CodeStructure> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/code/structure`,
+    { method: "GET", cache: "no-store", signal },
+  );
+  return parseResponse<CodeStructure>(response);
 }

@@ -4,6 +4,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
+from app.services.code_index_service import CodeIndexService
 from app.services.repository_service import RepositoryService
 from app.services.task_service import TaskService
 from app.workers.repository_queue import RepositoryQueue
@@ -41,4 +42,23 @@ def get_repository_service(
 
 RepositoryServiceDependency = Annotated[
     RepositoryService, Depends(get_repository_service)
+]
+
+
+def get_code_index_service(
+    request: Request,
+    session: SessionDependency,
+) -> CodeIndexService:
+    return CodeIndexService(
+        session,
+        request.app.state.git_client,
+        request.app.state.workspace,
+        request.app.state.parser_client,
+        request.app.state.parser_limits,
+        request.app.state.max_code_preview_entries,
+    )
+
+
+CodeIndexServiceDependency = Annotated[
+    CodeIndexService, Depends(get_code_index_service)
 ]

@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     max_tree_entries: int = 2_000
     max_tree_depth: int = 25
     clone_queue_capacity: int = 20
+    max_python_files: int = 2_000
+    max_python_file_bytes: int = 1_048_576
+    max_python_total_bytes: int = 20_971_520
+    max_code_entities: int = 50_000
+    parser_timeout_seconds: int = 30
+    max_code_preview_entries: int = 2_000
 
     model_config = SettingsConfigDict(
         env_file=".env",

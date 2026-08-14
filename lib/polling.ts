@@ -15,5 +15,5 @@ export function shouldRetryPoll(status?: number): boolean {
 }
 
 export function shouldContinueTaskPolling(status: string): boolean {
-  return status !== "cloned" && status !== "failed";
+  return !["cloned", "indexed", "failed"].includes(status);
 }

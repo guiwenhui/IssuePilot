@@ -17,6 +17,8 @@ M1 使用 HTTP 轮询查询任务状态。前端提交任务后获得 `task_id`�
 
 M2 增加业务终态规则：`created`、`queued`、`cloning` 继续轮询，`cloned`、`failed` 停止轮询。Tree 使用独立 API，只在 `cloned` 后读取，避免每次状态请求重复传输大清单。
 
+M3 新任务在 Snapshot 生效时直接进入 `indexing`，完成后进入 `indexed`。前端把 `created/queued/cloning/indexing` 视为活跃，把历史 `cloned`、`indexed`、`failed` 视为终态；`indexed` 后分别读取 Tree 与 Code Structure API。这样避免短暂 `cloned` 竞态，也不会让升级前 M2 任务永久轮询。
+
 ## Alternatives
 
 ### SSE
