@@ -18,6 +18,8 @@ IssuePilot 同时需要交互页面、业务 API、Python 代码分析和 Agent 
 
 FastAPI 返回 API 数据，不承担网页视觉渲染。该边界从 M1 首次落地。
 
+M1 实现采用浏览器直接调用 FastAPI：表单与状态面板是 Next.js Client Components，FastAPI 对配置的前端 Origin 开启显式 CORS。API 路由、Task Service、ORM Model 分层，前端不访问数据库，也不复制后端校验或状态转换规则。
+
 ## Alternatives
 
 ### Next.js 全栈一体化

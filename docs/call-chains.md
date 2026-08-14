@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是目标调用链及其逐步落地计划。M0 仅记录设计，M1 首先实现请求链的最小闭环；检索、Agent、恢复等能力在后续里程碑引入。
+以下是调用链及其逐步落地计划。请求链已在 M1 实现并通过产品验收；检索、Agent、恢复等能力仍在后续里程碑引入。
 
 ## 1. 请求链
 
@@ -39,6 +39,16 @@ sequenceDiagram
 ```
 
 输入是仓库 URL 和 Issue；输出是可持久化查询的 `task_id`、状态和错误契约。M1 不克隆仓库，也不启动 Agent。后续若加入 SSE，仍由 FastAPI 推送事件，数据库继续作为权威状态来源。
+
+### M1 已实现契约
+
+1. 首页 Client Component 将 `{ repository_url, issue }` 发送到 `POST /api/v1/tasks`。
+2. Pydantic 拒绝额外字段、非 HTTPS/无主机/带凭据的 URL、空 Issue 和超长输入；合法 URL 不在 M1 发起网络访问。
+3. Task Service 开启异步数据库事务并插入 `status=created` 的记录；成功返回 `201`、`Location` 和任务 DTO。
+4. 前端导航到 `/tasks/{task_id}`，立即请求 `GET /api/v1/tasks/{task_id}`，之后在前一次请求结束 3 秒后再调度下一次，避免重叠请求。
+5. 每次查询都由 FastAPI 重新读取 PostgreSQL，并返回 `Cache-Control: no-store`；页面刷新不依赖浏览器缓存恢复状态。
+
+错误统一为 `{ error: { code, message, details } }`：字段或路径参数不合法返回 `422`，任务不存在返回 `404`，数据库连接/事务不可用返回 `503`，未分类异常返回 `500`。详情页遇到 `4xx` 会展示错误并停止轮询；网络错误或 `5xx` 会展示错误并继续有限频率轮询，以便服务恢复后自动重新同步。
 
 ## 2. 检索链
 
