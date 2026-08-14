@@ -85,3 +85,25 @@ async def test_get_task_maps_database_failure() -> None:
 
     with pytest.raises(DatabaseUnavailableError):
         await service.get_task(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_set_status_persists_business_failure() -> None:
+    task = Mock(status=TaskStatus.QUEUED)
+    session = Mock()
+    session.get = AsyncMock(return_value=task)
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+    session.rollback = AsyncMock()
+    service = TaskService(session)
+
+    updated = await service.set_status(
+        uuid4(),
+        TaskStatus.FAILED,
+        failure_code="CLONE_QUEUE_FULL",
+        failure_message="克隆队列已满",
+    )
+
+    assert updated.status == TaskStatus.FAILED
+    assert updated.failure_code == "CLONE_QUEUE_FULL"
+    session.commit.assert_awaited_once()

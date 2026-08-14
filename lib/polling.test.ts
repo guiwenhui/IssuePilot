@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   POLL_INTERVAL_MS,
   schedulePoll,
+  shouldContinueTaskPolling,
   shouldRetryPoll,
 } from "./polling.ts";
 
@@ -30,4 +31,13 @@ test("polling retries network and server failures only", () => {
   assert.equal(shouldRetryPoll(503), true);
   assert.equal(shouldRetryPoll(404), false);
   assert.equal(shouldRetryPoll(422), false);
+});
+
+
+test("task polling stops at M2 business terminal states", () => {
+  assert.equal(shouldContinueTaskPolling("created"), true);
+  assert.equal(shouldContinueTaskPolling("queued"), true);
+  assert.equal(shouldContinueTaskPolling("cloning"), true);
+  assert.equal(shouldContinueTaskPolling("cloned"), false);
+  assert.equal(shouldContinueTaskPolling("failed"), false);
 });

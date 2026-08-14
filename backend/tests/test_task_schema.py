@@ -1,7 +1,11 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.task import TaskCreate
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from app.models.task import Task
+from app.schemas.task import TaskCreate, TaskResponse, TaskStatus
 
 
 def test_task_create_accepts_https_repository_and_trims_issue() -> None:
@@ -45,3 +49,32 @@ def test_task_create_rejects_extra_fields() -> None:
             issue="Fix the parser",
             unexpected="value",
         )
+
+
+def test_task_create_canonicalizes_repository_url() -> None:
+    payload = TaskCreate(
+        repository_url="https://github.com/pallets/markupsafe",
+        issue="Fix the parser",
+    )
+
+    assert payload.repository_url == "https://github.com/pallets/markupsafe.git"
+
+
+def test_task_response_exposes_persisted_clone_failure() -> None:
+    now = datetime.now(timezone.utc)
+    task = Task(
+        id=uuid4(),
+        repository_url="https://github.com/pallets/markupsafe.git",
+        issue_text="Fix the parser",
+        status=TaskStatus.FAILED,
+        failure_code="REPOSITORY_UNAVAILABLE",
+        failure_message="仓库不可用",
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = TaskResponse.model_validate(task)
+
+    assert response.status == TaskStatus.FAILED
+    assert response.failure is not None
+    assert response.failure.code == "REPOSITORY_UNAVAILABLE"

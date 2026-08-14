@@ -2,17 +2,17 @@
 
 ## 文档说明
 
-本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1 的 Next.js、FastAPI、Task Service、PostgreSQL 与轮询链已经实现并通过产品验收；Worker、仓库工作区、LangGraph 等仍是后续目标。每项能力的首次落地里程碑见下文。
+本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1 已验收；M2 的安全 URL 校验、进程内 Worker、Git 适配器、隔离工作区与仓库快照已经实现并待验收。LangGraph、代码检索和 Patch 等仍是后续目标。
 
 ## 组件关系
 
 ```mermaid
 flowchart LR
-    User["用户"] --> Web["Next.js Web\nM1"]
-    Web -->|"HTTP API；M1 轮询状态"| API["FastAPI API\nM1"]
+    User["用户"] --> Web["Next.js Web\nM1 / M2"]
+    Web -->|"HTTP API；轮询状态与读取树"| API["FastAPI API\nM1 / M2"]
     API --> Service["Task Service\nM1"]
     Service --> DB["PostgreSQL\nM1；pgvector M4"]
-    Service --> Worker["后台执行抽象\n简单执行 M2；RQ 待评估"]
+    Service --> Worker["进程内单消费者队列\nM2；RQ 待评估"]
     Worker --> Repo["隔离仓库工作区\nM2；Worktree M7"]
     Worker --> Graph["LangGraph Workflow\nM5"]
     Graph --> Model["单一 LLM\nM5"]
@@ -23,7 +23,7 @@ flowchart LR
     API -.->|"实时事件可选升级：SSE"| Web
 ```
 
-虚线 SSE 是后续升级方向，不属于 M1。M1 通过轮询完成任务状态读取。
+虚线 SSE 是后续升级方向，不属于 M2。当前通过非重叠轮询读取状态，终态再读取独立 Tree API。
 
 ## 组件职责
 
@@ -45,13 +45,15 @@ Next.js 负责界面渲染和用户交互。FastAPI 负责业务规则和 API �
 
 选择该边界是为了让业务规则只有一个权威实现，并直接复用 Python 的 AI 与代码分析生态。
 
-M1 的具体边界如下：
+M1/M2 的具体边界如下：
 
 - `app/` 与 `components/` 包含 App Router 页面和 Client Components；浏览器直接请求 `NEXT_PUBLIC_API_BASE_URL` 指向的 FastAPI。
-- FastAPI 只允许配置中的前端 Origin，并只开放 M1 所需的 `GET`、`POST` 与 `Content-Type`。
+- FastAPI 只允许配置中的前端 Origin，并只开放当前所需的 `GET`、`POST` 与 `Content-Type`。
 - `backend/app/api` 定义 HTTP 契约，`backend/app/services` 负责事务和业务异常，`backend/app/models` 定义持久化模型。
 - SQLAlchemy 使用异步 Session 和 asyncpg；数据库连接失败由 Service 映射为稳定的 `503 DATABASE_UNAVAILABLE`。
 - Alembic migration 必须显式运行，应用启动不会调用 `create_all` 或隐式修改 Schema。
+- Repository Queue 只负责背压与单消费者调度；Repository Service 编排 Git 与数据库，GitClient 不修改业务状态。
+- GitClient 使用固定 argv 和隔离环境，WorkspaceManager 只接受由服务端根目录与 UUID 推导的路径。
 
 ## 任务状态模型
 
@@ -61,6 +63,7 @@ M1 的具体边界如下：
 created
 queued
 cloning
+cloned
 indexing
 analyzing
 waiting_approval
@@ -80,7 +83,8 @@ stateDiagram-v2
     [*] --> created
     created --> queued
     queued --> cloning
-    cloning --> indexing
+    cloning --> cloned
+    cloned --> indexing
     indexing --> analyzing
     analyzing --> waiting_approval
     waiting_approval --> patching: 用户批准
@@ -91,9 +95,9 @@ stateDiagram-v2
     completed --> [*]
 ```
 
-执行状态可因可恢复错误进入 `retrying`，再回到原阶段；超过重试上限进入 `failed`。用户主动终止进入 `cancelled`。M1 只需要实现创建、持久化和查询所需的最小状态子集，后续里程碑再逐步启用其余转换。
+执行状态可因可恢复错误进入 `retrying`，再回到原阶段；超过重试上限进入 `failed`。用户主动终止进入 `cancelled`。后续里程碑再逐步启用尚未落地的转换。
 
-M1 实际只启用 `created`，且没有状态转换入口。`tasks` 表字段为：UUID 主键 `id`、`repository_url`、`issue_text`、`status`、带时区的 `created_at` 与 `updated_at`。API DTO 对外使用 `task_id` 和 `issue`，避免把数据库列名直接变成永久外部契约。
+M2 实际启用 `created → queued → cloning → cloned`，克隆或队列失败进入 `failed`。`cloned` 只表示隔离仓库已准备好，不表示整个 Issue 已完成。`tasks` 保存业务状态和失败证据，`repository_snapshots` 保存 canonical URL、Commit、计数和受限 Manifest。
 
 ## 数据所有权
 
@@ -101,19 +105,22 @@ M1 实际只启用 `created`，且没有状态转换入口。`tasks` 表字段�
 - Git 隔离工作区是仓库文件与本地 Patch 的权威来源。
 - LangGraph Checkpoint 保存工作流节点状态，但不能替代任务业务表。
 - 浏览器缓存不是权威状态；刷新页面后应从 FastAPI 重新读取。
+- Tree API 返回前核对 Snapshot、任务目录、HEAD SHA 和 clean 状态；不一致时返回 `409`。
 
 ## 后台执行演进
 
-M1 只创建并保存任务，不启动耗时工作流。M2 可先使用简单后台执行验证克隆调用链。Redis 本身不是任务系统；只有在观察到排队、重启恢复或并发隔离的真实需要后，才评估 Redis + RQ。Celery 和 Temporal 均保留为替代方案，不在当前目标中预先引入。
+M2 使用容量 20、单消费者的进程内 `asyncio.Queue`。它能控制并发，但服务重启会丢失待处理任务，也不支持多实例；该限制是评估 Redis + RQ 或其他持久队列的真实依据。Celery 和 Temporal 保留为替代方案，不预先引入。
 
-## M1 部署形态
+## 当前部署形态
 
-本地开发运行三个独立进程/服务：浏览器访问 `localhost:3000` 的 Next.js，FastAPI 监听 `localhost:8000`，PostgreSQL 16 容器映射到 `localhost:54329`。这只是 M1 的开发拓扑；统一编排和 Docker Compose 留到 M10。
+本地开发运行三个独立进程/服务：浏览器访问 `localhost:3000` 的 Next.js，FastAPI 监听 `localhost:8000` 并托管进程内 Worker，PostgreSQL 16 容器映射到 `localhost:54329`。Git 工作区默认位于 `/tmp/issuepilot-workspaces`。统一编排和 Docker Compose 留到 M10。
 
 ## 安全边界
 
-- 仅克隆公开 HTTPS 仓库，并进行 URL 与体积限制校验。
+- M2 仅克隆公开 `github.com` HTTPS 仓库，拒绝凭据、端口、查询、Fragment 和重定向。
 - 所有仓库操作在受控临时目录或 Worktree 中执行。
+- Git 通过参数数组运行，关闭凭据交互和系统/全局配置；浅克隆且不初始化 Submodule/LFS。
+- 每次克隆限制为 60 秒、100 MiB、5,000 tracked entries 和 25 层目录；这些值只能由服务端配置。
 - MVP 只允许 `pytest` 白名单命令族，不将用户输入拼接成 Shell 命令。
 - Patch 在人工批准后才能应用。
 - MVP 不 Commit、不 Push、不创建真实 PR。

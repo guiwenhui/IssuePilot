@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是调用链及其逐步落地计划。请求链已在 M1 实现并通过产品验收；检索、Agent、恢复等能力仍在后续里程碑引入。
+以下是调用链及其逐步落地计划。M1 请求链已验收；M2 仓库获取链已实现并待验收。检索、Agent、恢复等能力仍在后续里程碑引入。
 
 ## 1. 请求链
 
@@ -50,7 +50,48 @@ sequenceDiagram
 
 错误统一为 `{ error: { code, message, details } }`：字段或路径参数不合法返回 `422`，任务不存在返回 `404`，数据库连接/事务不可用返回 `503`，未分类异常返回 `500`。详情页遇到 `4xx` 会展示错误并停止轮询；网络错误或 `5xx` 会展示错误并继续有限频率轮询，以便服务恢复后自动重新同步。
 
-## 2. 检索链
+## 2. 仓库获取链
+
+首次落地：M2。
+
+```mermaid
+sequenceDiagram
+    participant Web as Next.js
+    participant API as FastAPI
+    participant DB as PostgreSQL
+    participant Queue as In-process Queue
+    participant Worker as Repository Service
+    participant Git as Git CLI
+    participant FS as Isolated Workspace
+
+    Web->>API: POST /api/v1/tasks
+    API->>API: 严格校验 github.com URL
+    API->>DB: INSERT created → queued
+    API->>Queue: enqueue(task_id)
+    API-->>Web: 201 queued
+    Queue->>Worker: 单消费者领取任务
+    Worker->>DB: queued → cloning
+    Worker->>Git: ls-remote（无凭据、无重定向）
+    Worker->>Git: depth=1 clone 到 staging
+    Git->>FS: 写入受控任务目录
+    Worker->>Git: rev-parse + ls-tree + status
+    Worker->>FS: 体积、数量、深度与路径校验
+    Worker->>FS: staging 原子移动到正式目录
+    Worker->>DB: 保存 Snapshot + cloning → cloned
+    Web->>API: GET task（轮询）
+    API->>DB: SELECT status
+    API-->>Web: cloned
+    Web->>API: GET repository/tree
+    API->>DB: SELECT Snapshot
+    API->>FS: 核对目录、HEAD 和 clean 状态
+    API-->>Web: Commit + 受限文件树
+```
+
+M2 把“请求错误”和“任务业务失败”分开：不安全 URL 在任何 Git 调用前返回 `422` 且不建任务；远程仓库不存在、私有、超时或超限时，任务本身已经存在，因此 GET Task 返回 `200 + status=failed + failure`。数据库/工作区/SHA 不一致时 Tree API 返回 `409 WORKSPACE_INCONSISTENT`，不会用数据库 Manifest 掩盖真实文件缺失。
+
+页面在 `created/queued/cloning` 继续非重叠轮询，在 `cloned/failed` 停止；`cloned` 只读取一次 Tree API。Tree API 的网络错误或 `5xx` 可继续低频重试，永久 `4xx` 停止。
+
+## 3. 检索链
 
 结构化代码首次落地：M3；完整混合检索首次落地：M4。
 
@@ -69,7 +110,7 @@ flowchart LR
 
 正常输出必须带文件路径、符号与来源，不能只返回模型总结。若召回不足，系统可在限定次数内扩大查询或 Top-K；仍不足则保存检索证据并进入 `failed` 或人工处理，而不是臆造代码上下文。
 
-## 3. Agent 链
+## 4. Agent 链
 
 分析与规划首次落地：M5；审批与恢复首次落地：M6；Patch 和测试首次落地：M7；审查修复环首次落地：M8。
 
@@ -93,7 +134,7 @@ flowchart TD
 
 LangGraph 节点不是让多个角色自由聊天，而是让每一步的输入、输出和下一步显式可见。审批节点通过 Interrupt 暂停；用户决定后从 Checkpoint 恢复。
 
-## 4. 失败链
+## 5. 失败链
 
 基本错误契约从 M1 开始；跨节点 Checkpoint 恢复在 M6 落地；有限修复循环在 M8 落地。
 

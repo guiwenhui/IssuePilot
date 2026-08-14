@@ -21,6 +21,15 @@ MVP 采用以下硬边界：
 
 这些能力分别在 M2、M6 与 M7 落地；M0 只记录边界。
 
+M2 的实际实现进一步收紧为：
+
+- 只接受 `https://github.com/{owner}/{repo}`，拒绝凭据、显式端口、Query、Fragment、编码路径分隔符和重定向。
+- 使用 argv 调用 Git，不经过 Shell；关闭凭据提示、系统/全局 Git 配置和 LFS smudge。
+- 使用 `--depth=1 --single-branch --no-tags --no-recurse-submodules`，Submodule 只作为 Manifest 条目。
+- 先写 UUID staging，成功验证后原子移动；清理函数只接受 staging 根目录的直接子项。
+- 限制超时、工作区体积、tracked entry 数和路径深度；枚举和计量不跟随符号链接。
+- 仓库内容只展示，不导入、不解析、不执行。
+
 ## Alternatives
 
 ### 在主工作目录直接修改

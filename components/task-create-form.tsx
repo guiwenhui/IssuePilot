@@ -67,7 +67,7 @@ export default function TaskCreateForm() {
           required
           disabled={isSubmitting}
         />
-        <small id="repository-help">M1 只校验 HTTPS 结构，不访问或克隆仓库。</small>
+        <small id="repository-help">M2 仅支持公开 github.com 仓库，不接受凭据或重定向。</small>
         {fieldErrors.repository_url ? (
           <p className="field-error" id="repository-error">
             {fieldErrors.repository_url}
@@ -104,7 +104,7 @@ export default function TaskCreateForm() {
       ) : null}
 
       <button className="primary-button" type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "正在创建任务…" : "创建 M1 任务"}
+        {isSubmitting ? "正在创建任务…" : "创建并克隆仓库"}
       </button>
     </form>
   );

@@ -1,14 +1,19 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List
-from urllib.parse import urlsplit
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.services.repository_url import normalize_repository_url
+
 
 class TaskStatus(str, Enum):
     CREATED = "created"
+    QUEUED = "queued"
+    CLONING = "cloning"
+    CLONED = "cloned"
+    FAILED = "failed"
 
 
 class TaskCreate(BaseModel):
@@ -23,13 +28,7 @@ class TaskCreate(BaseModel):
         if not isinstance(value, str):
             raise ValueError("repository_url must be a string")
 
-        normalized = value.strip()
-        parsed = urlsplit(normalized)
-        if parsed.scheme != "https" or not parsed.hostname:
-            raise ValueError("repository_url must be an HTTPS URL with a host")
-        if parsed.username is not None or parsed.password is not None:
-            raise ValueError("repository_url must not include credentials")
-        return normalized
+        return normalize_repository_url(value)
 
     @field_validator("issue", mode="before")
     @classmethod
@@ -39,11 +38,17 @@ class TaskCreate(BaseModel):
         return value.strip()
 
 
+class TaskFailure(BaseModel):
+    code: str
+    message: str
+
+
 class TaskResponse(BaseModel):
     task_id: UUID = Field(validation_alias="id")
     repository_url: str
     issue: str = Field(validation_alias="issue_text")
     status: TaskStatus
+    failure: Optional[TaskFailure] = None
     created_at: datetime
     updated_at: datetime
 

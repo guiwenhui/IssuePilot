@@ -1,12 +1,35 @@
-export type TaskStatus = "created";
+export type TaskStatus = "created" | "queued" | "cloning" | "cloned" | "failed";
+
+export type TaskFailure = {
+  code: string;
+  message: string;
+};
 
 export type Task = {
   task_id: string;
   repository_url: string;
   issue: string;
   status: TaskStatus;
+  failure: TaskFailure | null;
   created_at: string;
   updated_at: string;
+};
+
+export type RepositoryTreeEntry = {
+  path: string;
+  kind: "file" | "symlink" | "submodule";
+  size_bytes: number | null;
+};
+
+export type RepositoryTree = {
+  task_id: string;
+  canonical_url: string;
+  commit_sha: string;
+  file_count: number;
+  total_bytes: number;
+  truncated: boolean;
+  cloned_at: string;
+  entries: RepositoryTreeEntry[];
 };
 
 export type CreateTaskInput = {
@@ -55,10 +78,10 @@ export class ApiError extends Error {
   }
 }
 
-async function parseResponse(response: Response): Promise<Task> {
-  const body = (await response.json()) as Task | ErrorEnvelope;
+async function parseResponse<T>(response: Response): Promise<T> {
+  const body = (await response.json()) as T | ErrorEnvelope;
   if (response.ok) {
-    return body as Task;
+    return body as T;
   }
 
   const error = (body as ErrorEnvelope).error;
@@ -76,7 +99,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return parseResponse(response);
+  return parseResponse<Task>(response);
 }
 
 export async function fetchTask(
@@ -88,5 +111,16 @@ export async function fetchTask(
     cache: "no-store",
     signal,
   });
-  return parseResponse(response);
+  return parseResponse<Task>(response);
+}
+
+export async function fetchRepositoryTree(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<RepositoryTree> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/repository/tree`,
+    { method: "GET", cache: "no-store", signal },
+  );
+  return parseResponse<RepositoryTree>(response);
 }

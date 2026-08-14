@@ -154,6 +154,16 @@ h1 {
   background: var(--orange);
 }
 
+.status-pill.danger {
+  color: #8f3b20;
+  border-color: rgba(213, 102, 47, 0.25);
+  background: #fff3eb;
+}
+
+.status-pill.danger .dot {
+  background: #d5662f;
+}
+
 .milestone-card {
   padding: 34px;
   border: 1px solid rgba(21, 32, 28, 0.1);
@@ -180,7 +190,7 @@ h1 {
 
 .progress-track span {
   display: block;
-  width: 20%;
+  width: 30%;
   height: 100%;
   border-radius: inherit;
   background: var(--green);
@@ -434,6 +444,112 @@ h1 {
   line-height: 1.6;
 }
 
+.task-failure {
+  display: grid;
+  gap: 5px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid rgba(213, 102, 47, 0.25);
+  border-radius: 12px;
+  color: #8f3b20;
+  background: #fff3eb;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.repository-tree {
+  margin-top: 34px;
+  padding-top: 30px;
+  border-top: 1px solid var(--line);
+}
+
+.repository-tree-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+
+.repository-tree-heading h2 {
+  margin: 4px 0 0;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.repository-tree-heading > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.snapshot-meta {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 22px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(220, 236, 227, 0.45);
+}
+
+.snapshot-meta div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.snapshot-meta dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.snapshot-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-tree-list {
+  max-height: 420px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  list-style: none;
+}
+
+.file-tree-list li {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.file-tree-list li:last-child {
+  border-bottom: 0;
+}
+
+.file-tree-list li > span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tree-kind {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tree-kind.symlink,
+.tree-kind.submodule {
+  color: #9d5a20;
+}
+
 .loading-state {
   padding: 34px;
   border: 1px solid var(--line);
@@ -619,6 +735,24 @@ footer span:first-child {
 
   .task-status-heading {
     flex-direction: column;
+  }
+
+  .repository-tree-heading,
+  .snapshot-meta div {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+  }
+
+  .repository-tree-heading {
+    flex-direction: column;
+  }
+
+  .file-tree-list li {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .file-tree-list li > span:last-child {
+    display: none;
   }
 
   .task-details > div {

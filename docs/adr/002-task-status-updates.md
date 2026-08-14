@@ -15,6 +15,8 @@ M1 使用 HTTP 轮询查询任务状态。前端提交任务后获得 `task_id`�
 
 出现持续事件流展示需求后，再评估升级为 SSE。即使采用 SSE，任务最终状态仍以 PostgreSQL 为准。
 
+M2 增加业务终态规则：`created`、`queued`、`cloning` 继续轮询，`cloned`、`failed` 停止轮询。Tree 使用独立 API，只在 `cloned` 后读取，避免每次状态请求重复传输大清单。
+
 ## Alternatives
 
 ### SSE

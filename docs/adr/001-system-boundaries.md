@@ -20,6 +20,8 @@ FastAPI 返回 API 数据，不承担网页视觉渲染。该边界从 M1 首次
 
 M1 实现采用浏览器直接调用 FastAPI：表单与状态面板是 Next.js Client Components，FastAPI 对配置的前端 Origin 开启显式 CORS。API 路由、Task Service、ORM Model 分层，前端不访问数据库，也不复制后端校验或状态转换规则。
 
+M2 在同一 FastAPI 进程加入容量受限的单消费者 Queue，但保持 Worker 边界：Router 只建任务和入队，Repository Service 编排克隆，GitClient 只运行固定 Git 命令，WorkspaceManager 只管理受控路径。这个进程内实现是可替换适配器，不把队列逻辑散落到 HTTP 路由。
+
 ## Alternatives
 
 ### Next.js 全栈一体化

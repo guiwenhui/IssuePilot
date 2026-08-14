@@ -15,6 +15,8 @@ M1 使用 PostgreSQL 保存任务业务数据。M4 在同一数据库引入 pgve
 
 M1 使用 SQLAlchemy 2 异步 ORM、asyncpg 和显式 Alembic migration。首个 `tasks` 表保存 UUID、仓库 URL、Issue 文本、`created` 状态以及创建/更新时间。应用启动不自动创建或升级表，Schema 变更必须通过可审查、可回退的 migration 执行。
 
+M2 在 `tasks` 增加失败码/消息和状态索引，并新增一对一 `repository_snapshots`，保存 canonical URL、Commit SHA、计数和受限 JSONB Manifest。Snapshot 是可查询证据，Git 隔离目录仍是文件事实来源；Tree API 必须核对两者。
+
 ## Alternatives
 
 ### SQLite
