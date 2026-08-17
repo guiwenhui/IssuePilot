@@ -85,13 +85,14 @@ class FakeStore:
         provider_dimensions: int,
         candidate_limit: int,
         result_limit: int,
+        success_status: TaskStatus,
     ) -> None:
         assert len(chunks) == len(embeddings)
         assert len(query_embedding) == provider_dimensions
         assert candidate_limit == 50
         assert result_limit == 10
         self.persisted = list(chunks)
-        context.task.status = TaskStatus.RETRIEVED
+        context.task.status = success_status
 
 
 def make_context(tmp_path: Path) -> tuple[RetrievalContext, WorkspaceManager]:
@@ -190,6 +191,27 @@ async def test_retrieve_task_builds_embeddings_and_retrieved_artifact(
     assert provider.query == context.task.issue_text
     assert len(provider.documents) == len(store.persisted) == 1
     assert store.persisted[0].symbol_name == "run"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_task_can_transition_directly_to_analyzing(
+    tmp_path: Path,
+) -> None:
+    context, workspace = make_context(tmp_path)
+    service = RetrievalService(
+        FakeStore(context),
+        FakeGit(),
+        workspace,
+        FakeProvider(),
+        ChunkLimits(100, 120, 160, 20, 16_384),
+        50,
+        10,
+        TaskStatus.ANALYZING,
+    )
+
+    await service.retrieve_task(context.task.id)
+
+    assert context.task.status == TaskStatus.ANALYZING
 
 
 @pytest.mark.asyncio

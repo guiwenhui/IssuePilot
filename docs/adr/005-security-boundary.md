@@ -34,6 +34,8 @@ M3 允许“解析但不执行”：父进程只把 Git tracked 普通 `.py` 交
 
 M4 允许“本地向量化但不执行”：Chunk 前复核 Snapshot/Index/HEAD/clean/tracked hash，只读取普通 `.py`；限制 Chunk 数、窗口、字符和 Embedding 批次。默认 Provider 固定为 loopback Ollama，模型为 `qwen3-embedding:0.6b`，请求使用 `truncate=false`，响应必须数量一致、1024 维且全为有限数。M4 不向 OpenAI 或其他外部服务发送代码。
 
+M5 允许“本地规划但不执行”：Chat Provider 只接受 `127.0.0.1/localhost/::1` 的无凭据 HTTP URL，固定 `qwen3:8b`、`think=false`、temperature 0、上下文/输出/响应体上限。Issue、代码和注释均是不可信数据；模型没有工具和文件权限，输出还要通过 Pydantic 与 rank/path/symbol 确定性校验。M5 不向托管模型发送证据，不写文件、不执行命令，也不实现审批动作。
+
 ## Alternatives
 
 ### 在主工作目录直接修改

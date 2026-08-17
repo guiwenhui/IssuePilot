@@ -21,6 +21,8 @@ M3 新任务在 Snapshot 生效时直接进入 `indexing`，完成后进入 `ind
 
 M4 新任务在 AST 成功事务中直接进入 `retrieving`，检索产物原子保存后进入 `retrieved`。前端把 `retrieving` 视为活跃，把 `retrieved` 视为终态；随后并行读取 Tree、Code Structure 和 Retrieval API。历史 M3 `indexed` 不自动补排并继续作为终态，避免升级后永久轮询。
 
+M5 开关开启时，检索产物事务直接进入 `analyzing`，规划三表与 `waiting_approval` 在另一个原子事务生效。前端继续轮询 `analyzing`，在 `waiting_approval` 停止并读取 Tree、Code、Retrieval、Planning。历史 `retrieved` 仍是终态；关闭开关也回到该 M4 行为。
+
 ## Alternatives
 
 ### SSE

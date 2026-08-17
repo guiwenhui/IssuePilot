@@ -4,12 +4,14 @@ from fastapi import APIRouter, Response, status
 
 from app.api.dependencies import (
     CodeIndexServiceDependency,
+    PlanningServiceDependency,
     RetrievalServiceDependency,
     RepositoryQueueDependency,
     RepositoryServiceDependency,
     TaskServiceDependency,
 )
 from app.schemas.code_index import CodeStructureResponse
+from app.schemas.planning import PlanningResponse
 from app.schemas.repository import RepositoryTreeResponse
 from app.schemas.retrieval import RetrievalResponse
 from app.schemas.task import ErrorResponse, TaskCreate, TaskResponse, TaskStatus
@@ -126,3 +128,23 @@ async def get_retrieval(
     retrieval = await service.get_retrieval(task_id)
     response.headers["Cache-Control"] = "no-store"
     return retrieval
+
+
+@router.get(
+    "/{task_id}/planning",
+    response_model=PlanningResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def get_planning(
+    task_id: UUID,
+    service: PlanningServiceDependency,
+    response: Response,
+) -> PlanningResponse:
+    planning = await service.get_planning(task_id)
+    response.headers["Cache-Control"] = "no-store"
+    return planning

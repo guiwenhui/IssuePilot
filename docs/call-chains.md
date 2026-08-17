@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是调用链及其逐步落地计划。M1 请求链、M2 仓库获取链、M3 结构化代码链和 M4 混合检索链均已验收。Agent、恢复和 Patch 仍在后续里程碑引入。
+以下是调用链及其逐步落地计划。M1–M5 已验收。审批恢复和 Patch 仍在后续里程碑引入。
 
 ## 1. 请求链
 
@@ -151,29 +151,41 @@ sequenceDiagram
 
 M4 新任务在 `retrieving` 继续轮询，在 `retrieved/failed` 停止；历史 `cloned/indexed` 保持终态且不自动补排。正常输出必须带固定 Commit、文件路径、符号、行号、代码片段和每路排名，不能只返回模型总结。Embedding 不可用、响应非法或资源超限会保存稳定失败码；已形成的 Tree 和 Code Structure 仍可读取。
 
-## 5. Agent 链
+## 5. 本地规划链
 
-分析与规划首次落地：M5；审批与恢复首次落地：M6；Patch 和测试首次落地：M7；审查修复环首次落地：M8。
+分析与规划首次落地：M5。
 
 ```mermaid
-flowchart TD
-    Retrieve["retrieve_code\n检索依据"] --> Analyze["analyze_requirement\n需求与验收标准"]
-    Analyze --> Plan["create_plan\n实施计划与测试策略"]
-    Plan --> Save["保存 Checkpoint"]
-    Save --> Approval{"Interrupt：人工审批"}
-    Approval -->|"修改"| Plan
-    Approval -->|"拒绝"| Cancelled["cancelled"]
-    Approval -->|"批准"| Patch["generate_and_apply_patch\n隔离 Worktree"]
-    Patch --> Test["run_pytest\n白名单命令"]
-    Test --> Review["review_patch\n审查变更"]
-    Review --> Gate{"质量 Gate"}
-    Gate -->|"通过"| Complete["completed"]
-    Gate -->|"可修复且未超限"| Retry["retrying"]
-    Retry --> Patch
-    Gate -->|"超限"| Failed["failed + 人工升级"]
+sequenceDiagram
+    participant Pipeline as Repository Pipeline
+    participant Store as Planning Store
+    participant Git as Git/Workspace
+    participant Graph as LangGraph
+    participant Ollama as Local qwen3:8b
+    participant DB as PostgreSQL
+    participant Web as Next.js
+
+    Pipeline->>DB: Retrieval 成功 → analyzing
+    Pipeline->>Graph: ainvoke(task_id)
+    Graph->>Store: retrieve_code
+    Store->>DB: 读取 Snapshot/Index/Retrieval/Top 10
+    Store->>Git: 核对 HEAD SHA 与 clean
+    Graph->>Graph: 裁剪证据 + 稳定 SHA256
+    Graph->>Ollama: analyze_requirement（JSON Schema, think=false）
+    Ollama-->>Graph: RequirementAnalysis JSON
+    Graph->>Ollama: create_plan（JSON Schema, think=false）
+    Ollama-->>Graph: ImplementationPlan JSON
+    Graph->>Graph: 校验 rank/path/symbol 与禁止内容
+    Graph->>Store: persist_plan
+    Store->>DB: 锁定任务并复核 Commit/Run
+    Store->>DB: 原子保存三表 + waiting_approval
+    Web->>DB: 经 FastAPI 读取四份证据
+    Web-->>Web: 展示计划；无审批按钮
 ```
 
-LangGraph 节点不是让多个角色自由聊天，而是让每一步的输入、输出和下一步显式可见。审批节点通过 Interrupt 暂停；用户决定后从 Checkpoint 恢复。
+M5 图固定为 `START → retrieve_code → analyze_requirement → create_plan → persist_plan → END`，不包含 Checkpoint、Interrupt、工具、循环或文件写入。模型失败、输出非法、证据越界或工作区不一致会保存稳定 failure code；数据库不可用仍返回基础设施错误。`waiting_approval` 只是业务状态和页面提示。
+
+M6 才在 Planning 之后加入持久 Checkpoint 与 Interrupt，接收批准、修改或拒绝并在恢复前同时核对 Checkpoint、PostgreSQL 与真实 Worktree。M7 再引入 Worktree、Patch 和白名单测试，M8 才加入 Reviewer 与有限修复环。
 
 ## 6. 失败链
 

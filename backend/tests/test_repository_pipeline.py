@@ -71,13 +71,26 @@ class PipelineParserClient:
 
 
 class PipelineRetrievalService:
+    def __init__(
+        self, task: Task, result_status: TaskStatus = TaskStatus.RETRIEVED
+    ) -> None:
+        self.task = task
+        self.called = False
+        self.result_status = result_status
+
+    async def retrieve_task(self, task_id: object) -> None:
+        self.called = True
+        self.task.status = self.result_status
+
+
+class PipelinePlanningService:
     def __init__(self, task: Task) -> None:
         self.task = task
         self.called = False
 
-    async def retrieve_task(self, task_id: object) -> None:
+    async def plan_task(self, task_id: object) -> None:
         self.called = True
-        self.task.status = TaskStatus.RETRIEVED
+        self.task.status = TaskStatus.WAITING_APPROVAL
 
 
 @pytest.mark.asyncio
@@ -122,3 +135,49 @@ async def test_pipeline_clones_then_indexes_task(tmp_path: Path) -> None:
     assert task.status == TaskStatus.RETRIEVED
     assert retrieval.called is True
     assert workspace.repository_path(task.id).is_dir()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_runs_planning_only_after_analyzing(tmp_path: Path) -> None:
+    task = Task(
+        id=uuid4(),
+        repository_url="https://github.com/pallets/markupsafe.git",
+        issue_text="Understand service",
+        status=TaskStatus.QUEUED,
+    )
+    session = Mock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.execute = AsyncMock()
+    session.flush = AsyncMock()
+
+    async def get_record(model: type, record_id: object) -> object:
+        if model is Task:
+            return task
+        if model is RepositorySnapshot:
+            for call in session.add.call_args_list:
+                if isinstance(call.args[0], RepositorySnapshot):
+                    return call.args[0]
+        return None
+
+    session.get = AsyncMock(side_effect=get_record)
+    workspace = WorkspaceManager(
+        tmp_path / "workspaces", WorkspaceLimits(10_000, 100, 100, 10)
+    )
+    retrieval = PipelineRetrievalService(task, TaskStatus.ANALYZING)
+    planning = PipelinePlanningService(task)
+    pipeline = RepositoryPipeline(
+        PipelineGitClient(),
+        workspace,
+        PipelineParserClient(),
+        ParserLimits(20, 20_000, 100_000, 200),
+        2_000,
+        lambda current_session: retrieval,
+        lambda current_session: planning,
+    )
+
+    await pipeline.process(session, task.id)
+
+    assert retrieval.called is True
+    assert planning.called is True
+    assert task.status == TaskStatus.WAITING_APPROVAL

@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.services.code_index_service import CodeIndexService
+from app.services.planning_service import PlanningService
+from app.services.planning_store import SqlPlanningStore
 from app.services.repository_service import RepositoryService
 from app.services.retrieval_service import RetrievalService
 from app.services.retrieval_store import SqlRetrievalStore
@@ -83,4 +85,23 @@ def get_retrieval_service(
 
 RetrievalServiceDependency = Annotated[
     RetrievalService, Depends(get_retrieval_service)
+]
+
+
+def get_planning_service(
+    request: Request,
+    session: SessionDependency,
+) -> PlanningService:
+    return PlanningService(
+        SqlPlanningStore(session),
+        request.app.state.git_client,
+        request.app.state.workspace,
+        request.app.state.llm_provider,
+        request.app.state.planning_graph,
+        request.app.state.planning_limits,
+    )
+
+
+PlanningServiceDependency = Annotated[
+    PlanningService, Depends(get_planning_service)
 ]

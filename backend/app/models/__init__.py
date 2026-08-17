@@ -1,4 +1,9 @@
 from app.models.code_index import CodeFile, CodeImport, CodeIndex, CodeSymbol
+from app.models.planning import (
+    ImplementationPlan,
+    PlanningRun,
+    RequirementAnalysis,
+)
 from app.models.repository_snapshot import RepositorySnapshot
 from app.models.retrieval import CodeChunk, RetrievalResult, RetrievalRun
 from app.models.task import Task
@@ -9,7 +14,10 @@ __all__ = [
     "CodeIndex",
     "CodeSymbol",
     "CodeChunk",
+    "ImplementationPlan",
+    "PlanningRun",
     "RepositorySnapshot",
+    "RequirementAnalysis",
     "RetrievalResult",
     "RetrievalRun",
     "Task",

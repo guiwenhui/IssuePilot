@@ -34,14 +34,16 @@ test("polling retries network and server failures only", () => {
 });
 
 
-test("task polling stops at M4 business terminal states", () => {
+test("task polling stops at M5 business terminal states", () => {
   assert.equal(shouldContinueTaskPolling("created"), true);
   assert.equal(shouldContinueTaskPolling("queued"), true);
   assert.equal(shouldContinueTaskPolling("cloning"), true);
   assert.equal(shouldContinueTaskPolling("indexing"), true);
   assert.equal(shouldContinueTaskPolling("retrieving"), true);
+  assert.equal(shouldContinueTaskPolling("analyzing"), true);
   assert.equal(shouldContinueTaskPolling("cloned"), false);
   assert.equal(shouldContinueTaskPolling("indexed"), false);
   assert.equal(shouldContinueTaskPolling("retrieved"), false);
+  assert.equal(shouldContinueTaskPolling("waiting_approval"), false);
   assert.equal(shouldContinueTaskPolling("failed"), false);
 });

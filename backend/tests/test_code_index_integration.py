@@ -65,13 +65,21 @@ async def test_index_task_writes_parent_rows_before_normalized_children(
                 .where(CodeIndex.task_id == task.id)
             ) == 1
             assert await session.scalar(
-                select(func.count()).select_from(CodeFile)
+                select(func.count())
+                .select_from(CodeFile)
+                .where(CodeFile.task_id == task.id)
             ) == 1
             assert await session.scalar(
-                select(func.count()).select_from(CodeSymbol)
+                select(func.count())
+                .select_from(CodeSymbol)
+                .join(CodeFile, CodeFile.id == CodeSymbol.file_id)
+                .where(CodeFile.task_id == task.id)
             ) == 2
             assert await session.scalar(
-                select(func.count()).select_from(CodeImport)
+                select(func.count())
+                .select_from(CodeImport)
+                .join(CodeFile, CodeFile.id == CodeImport.file_id)
+                .where(CodeFile.task_id == task.id)
             ) == 1
             await session.refresh(task)
             assert task.status == TaskStatus.INDEXED

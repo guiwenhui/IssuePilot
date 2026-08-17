@@ -26,6 +26,8 @@ M3 在同一 Queue processor 后半段调用 Code Index Service。Parser Client 
 
 M4 继续复用同一 Queue processor，但新增明确的 Retrieval Service 与 Embedding Provider 边界：Service 负责一致性、Chunk、召回、融合、事务和失败映射；Provider 只负责固定维度向量；SQL Store 负责 pgvector 查询与持久化。Next.js 不计算排名，只展示 Retrieval DTO。M5 Agent 不能提前进入这些适配器。
 
+M5 在 Retrieval 之后新增 Planning Service、SQL Store、Chat Provider 与固定 LangGraph：Service 负责工作区一致性、证据边界和失败分类；Graph 只编排四个节点；Provider 只调用本机 Structured Chat；Store 原子保存三类产物。Next.js 只读取 Planning DTO，不运行模型或决定业务状态。
+
 ## Alternatives
 
 ### Next.js 全栈一体化
