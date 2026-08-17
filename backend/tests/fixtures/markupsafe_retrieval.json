@@ -1,0 +1,33 @@
+{
+  "source": "pallets/markupsafe",
+  "frozen_at_commit": "main snapshot inspected 2026-08-16",
+  "documents": [
+    {"id":"escape","path":"src/markupsafe/__init__.py","symbol":"escape","text":"convert an object to string and escape HTML special characters; honor the __html__ protocol"},
+    {"id":"escape_silent","path":"src/markupsafe/__init__.py","symbol":"escape_silent","text":"escape a value but treat None as an empty safe string"},
+    {"id":"soft_str","path":"src/markupsafe/__init__.py","symbol":"soft_str","text":"convert to string while preserving Markup so already safe content is not escaped again"},
+    {"id":"markup_unescape","path":"src/markupsafe/__init__.py","symbol":"Markup.unescape","text":"convert escaped HTML entities back into a plain text string"},
+    {"id":"markup_striptags","path":"src/markupsafe/__init__.py","symbol":"Markup.striptags","text":"remove HTML tags, normalize whitespace, and unescape entities"},
+    {"id":"markup_add","path":"src/markupsafe/__init__.py","symbol":"Markup.__add__","text":"concatenate Markup with another value while escaping the other value"},
+    {"id":"markup_mod","path":"src/markupsafe/__init__.py","symbol":"Markup.__mod__","text":"percent string interpolation that escapes inserted arguments"},
+    {"id":"markup_join","path":"src/markupsafe/__init__.py","symbol":"Markup.join","text":"join an iterable while escaping every item"},
+    {"id":"markup_format","path":"src/markupsafe/__init__.py","symbol":"Markup.format","text":"format a safe template and escape formatted values"},
+    {"id":"escape_formatter","path":"src/markupsafe/__init__.py","symbol":"EscapeFormatter.format_field","text":"format a field using html formatting hooks and escape the result"},
+    {"id":"native_escape_inner","path":"src/markupsafe/_native.py","symbol":"_escape_inner","text":"native Python character replacement for ampersand greater less quote and apostrophe"},
+    {"id":"test_escape","path":"tests/test_escape.py","symbol":"test_escape","text":"parameterized regression test for public escape behavior and HTML characters","is_test":true},
+    {"id":"test_proxy","path":"tests/test_escape.py","symbol":"test_proxy","text":"test escape with a proxy object implementing the html protocol","is_test":true},
+    {"id":"test_escaping","path":"tests/test_markupsafe.py","symbol":"test_escaping","text":"test quote less greater ampersand apostrophe escaping and stripping tags","is_test":true},
+    {"id":"test_unescape","path":"tests/test_markupsafe.py","symbol":"test_unescape","text":"regression tests that decode HTML entities once and twice","is_test":true},
+    {"id":"test_escape_silent","path":"tests/test_markupsafe.py","symbol":"test_escape_silent","text":"test None produces empty Markup and normal values are escaped","is_test":true},
+    {"id":"test_soft_str","path":"tests/test_markupsafe.py","symbol":"test_soft_str","text":"test safe Markup type is preserved while other values become strings","is_test":true},
+    {"id":"test_format","path":"tests/test_markupsafe.py","symbol":"test_format","text":"test safe brace formatting escapes unsafe arguments","is_test":true},
+    {"id":"test_leak","path":"tests/test_leak.py","symbol":"test_markup_leaks","text":"repeat escaping operations to detect memory reference leaks","is_test":true},
+    {"id":"test_exception_html","path":"tests/test_exception_custom_html.py","symbol":"test_exception_custom_html","text":"ensure exceptions raised by a custom html object propagate during escape","is_test":true}
+  ],
+  "queries": [
+    {"query":"Treat None as an empty string when escaping a nullable value","relevant":["escape_silent","test_escape_silent"]},
+    {"query":"Avoid double escaping a value that is already marked safe","relevant":["soft_str","test_soft_str"]},
+    {"query":"Remove HTML tags and normalize whitespace before returning text","relevant":["markup_striptags","test_escaping"]},
+    {"query":"Decode escaped HTML entities back into plain text","relevant":["markup_unescape","test_unescape"]},
+    {"query":"Add a regression test for escaping quote and ampersand characters","relevant":["native_escape_inner","test_escape","test_escaping"]}
+  ]
+}

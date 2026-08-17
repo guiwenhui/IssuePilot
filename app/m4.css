@@ -1,0 +1,135 @@
+.retrieval {
+  margin-top: 34px;
+  padding-top: 30px;
+  border-top: 1px solid var(--line);
+}
+
+.retrieval-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+
+.retrieval-heading h2 {
+  margin: 4px 0 0;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.retrieval-heading > span,
+.retrieval-card header p,
+.retrieval-score {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.retrieval-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 20px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--line);
+}
+
+.retrieval-meta > div {
+  min-width: 0;
+  padding: 14px 16px;
+  background: rgba(220, 236, 227, 0.52);
+}
+
+.retrieval-meta dt {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.retrieval-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.retrieval-list {
+  display: grid;
+  gap: 16px;
+}
+
+.retrieval-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.retrieval-card header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: start;
+  padding: 17px 18px;
+}
+
+.retrieval-card h3 {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.retrieval-rank {
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.retrieval-channels {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.retrieval-card pre {
+  max-height: 280px;
+  margin: 0;
+  padding: 17px 18px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f0f2ee;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.retrieval-score {
+  padding: 12px 18px;
+  line-height: 1.6;
+}
+
+@media (max-width: 620px) {
+  .retrieval-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .retrieval-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .retrieval-card header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .retrieval-channels {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}

@@ -24,6 +24,8 @@ M2 在同一 FastAPI 进程加入容量受限的单消费者 Queue，但保持 W
 
 M3 在同一 Queue processor 后半段调用 Code Index Service。Parser Client 只负责隔离子进程协议，AST Runner 不访问数据库或改变任务状态；Code Index Service 才能复核工作区并持久化结构。Next.js 只展示后端 DTO，不在浏览器重复解析规则。
 
+M4 继续复用同一 Queue processor，但新增明确的 Retrieval Service 与 Embedding Provider 边界：Service 负责一致性、Chunk、召回、融合、事务和失败映射；Provider 只负责固定维度向量；SQL Store 负责 pgvector 查询与持久化。Next.js 不计算排名，只展示 Retrieval DTO。M5 Agent 不能提前进入这些适配器。
+
 ## Alternatives
 
 ### Next.js 全栈一体化

@@ -7,8 +7,10 @@ import {
   CodeStructure,
   fetchCodeStructure,
   fetchRepositoryTree,
+  fetchRetrieval,
   fetchTask,
   RepositoryTree,
+  Retrieval,
   Task,
 } from "@/lib/api/tasks";
 import {
@@ -23,6 +25,7 @@ type TaskStatusState = {
   task?: Task;
   repositoryTree?: RepositoryTree;
   codeStructure?: CodeStructure;
+  retrieval?: Retrieval;
   error: string;
   lastSyncedAt?: Date;
 };
@@ -31,7 +34,14 @@ async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
   const task = await fetchTask(taskId, signal);
   let repositoryTree: RepositoryTree | undefined;
   let codeStructure: CodeStructure | undefined;
-  if (task.status === "indexed") {
+  let retrieval: Retrieval | undefined;
+  if (task.status === "retrieved") {
+    [repositoryTree, codeStructure, retrieval] = await Promise.all([
+      fetchRepositoryTree(taskId, signal),
+      fetchCodeStructure(taskId, signal),
+      fetchRetrieval(taskId, signal),
+    ]);
+  } else if (task.status === "indexed") {
     [repositoryTree, codeStructure] = await Promise.all([
       fetchRepositoryTree(taskId, signal),
       fetchCodeStructure(taskId, signal),
@@ -39,14 +49,32 @@ async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
   } else if (task.status === "cloned") {
     repositoryTree = await fetchRepositoryTree(taskId, signal);
   } else if (task.status === "failed") {
-    repositoryTree = await fetchTreeAfterFailure(taskId, signal);
+    [repositoryTree, codeStructure] = await Promise.all([
+      fetchTreeAfterFailure(taskId, signal),
+      fetchCodeStructureAfterFailure(taskId, signal),
+    ]);
   }
   return {
     task,
     repositoryTree,
     codeStructure,
+    retrieval,
     shouldContinue: shouldContinueTaskPolling(task.status),
   };
+}
+
+async function fetchCodeStructureAfterFailure(
+  taskId: string,
+  signal: AbortSignal,
+): Promise<CodeStructure | undefined> {
+  try {
+    return await fetchCodeStructure(taskId, signal);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "CODE_INDEX_NOT_READY") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function fetchTreeAfterFailure(

@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是调用链及其逐步落地计划。M1 请求链和 M2 仓库获取链已验收；M3 结构化代码链已实现并待验收。完整检索、Agent、恢复等能力仍在后续里程碑引入。
+以下是调用链及其逐步落地计划。M1 请求链、M2 仓库获取链、M3 结构化代码链和 M4 混合检索链均已验收。Agent、恢复和 Patch 仍在后续里程碑引入。
 
 ## 1. 请求链
 
@@ -112,33 +112,44 @@ sequenceDiagram
     Parser->>Git: 只读 tracked 普通 .py
     Parser->>Parser: ast.parse + Visitor
     Parser-->>Service: 文件、符号、Import、测试、文件级警告
-    Service->>DB: 单事务保存结构 + indexing → indexed
+    Service->>DB: 单事务保存结构 + indexing → retrieving（M4 新任务）
     Web->>DB: 经 FastAPI 轮询任务
     Web->>Service: GET code/structure
     Service->>Git: 再次核对真实工作区
     Service-->>Web: Commit + 受限结构预览
 ```
 
-M3 新任务在 `created/queued/cloning/indexing` 继续轮询，在 `indexed/failed` 停止。历史 M2 `cloned` 仍是终态。解析错误分两级：单文件编码/语法问题作为索引警告；没有可解析 Python、超时、超限、Parser 协议错误或工作区不一致使任务进入 `failed`。任何情况下都不 Import 或执行仓库代码。
+M3 历史任务在 `indexed/failed` 停止；M4 新任务由索引事务直接进入 `retrieving`。历史 M2 `cloned` 和 M3 `indexed` 仍是终态。解析错误分两级：单文件编码/语法问题作为索引警告；没有可解析 Python、超时、超限、Parser 协议错误或工作区不一致使任务进入 `failed`。任何情况下都不 Import 或执行仓库代码。
 
 ## 4. 检索链
 
 结构化代码首次落地：M3；完整混合检索首次落地：M4。
 
 ```mermaid
-flowchart LR
-    Issue["Issue 文本"] --> Query["查询构造"]
-    Query --> Keyword["关键词召回"]
-    Query --> Symbol["AST 符号召回"]
-    Query --> Vector["Embedding 向量召回"]
-    Keyword --> Fusion["结果融合与去重"]
-    Symbol --> Fusion
-    Vector --> Fusion
-    Fusion --> Ranker["Reranker 重排"]
-    Ranker --> Context["相关文件、符号、代码片段与引用依据"]
+sequenceDiagram
+    participant Queue as Repository Queue
+    participant Service as Retrieval Service
+    participant Git as Git/Workspace
+    participant Ollama as Local Ollama
+    participant DB as PostgreSQL + pgvector
+    participant Web as Next.js
+
+    Queue->>Service: retrieve_task(task_id)
+    Service->>DB: 读取 Task/Snapshot/Index/File/Symbol
+    Service->>Git: 核对 Snapshot SHA、Index SHA、HEAD、clean、tracked hash
+    Service->>Service: Symbol/模块边界 Chunk + 资源限制
+    Service->>Ollama: POST /api/embed（文档批次 + Issue 查询）
+    Ollama-->>Service: 1024 维有限数向量
+    Service->>DB: 保存 Chunk + FTS + vector(1024)
+    Service->>DB: Keyword / Symbol / exact cosine 各取 50
+    Service->>Service: RRF v1 + rules v1，确定性 Top 10
+    Service->>DB: 原子保存 Run/Result + retrieving → retrieved
+    Web->>DB: 经 FastAPI 读取 task/repository/code/retrieval
+    Service->>Git: 读取 Retrieval 前再次核对真实工作区
+    Service-->>Web: Commit、模型、path、symbol、行号、snippet、通道排名与分数
 ```
 
-正常输出必须带文件路径、符号与来源，不能只返回模型总结。若召回不足，系统可在限定次数内扩大查询或 Top-K；仍不足则保存检索证据并进入 `failed` 或人工处理，而不是臆造代码上下文。
+M4 新任务在 `retrieving` 继续轮询，在 `retrieved/failed` 停止；历史 `cloned/indexed` 保持终态且不自动补排。正常输出必须带固定 Commit、文件路径、符号、行号、代码片段和每路排名，不能只返回模型总结。Embedding 不可用、响应非法或资源超限会保存稳定失败码；已形成的 Tree 和 Code Structure 仍可读取。
 
 ## 5. Agent 链
 

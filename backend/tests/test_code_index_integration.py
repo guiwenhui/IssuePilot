@@ -60,7 +60,9 @@ async def test_index_task_writes_parent_rows_before_normalized_children(
             await service.index_task(task.id)
 
             assert await session.scalar(
-                select(func.count()).select_from(CodeIndex)
+                select(func.count())
+                .select_from(CodeIndex)
+                .where(CodeIndex.task_id == task.id)
             ) == 1
             assert await session.scalar(
                 select(func.count()).select_from(CodeFile)

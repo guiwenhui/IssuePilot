@@ -1,6 +1,6 @@
 # IssuePilot 术语表
 
-本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1/M2/M3 已实现能力和后续目标能力。
+本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1–M4 已实现能力和后续目标能力。
 
 | 术语 | 初学者解释 | 在 IssuePilot 中的含义 |
 |---|---|---|
@@ -36,11 +36,17 @@
 | 代码索引快照 | 与某个 Commit 和解析器版本绑定的结构化代码产物。 | M3 的 `code_indexes` 记录 Commit、Python/Parser 版本和数量，子表保存文件、符号与 Import。 |
 | 文件级解析警告 | 单个文件无法按当前 Python 语法或编码解析，但不抹掉其他成功结果。 | M3 保存 `syntax_error/read_error` 的受限摘要；至少一个文件成功时任务仍可 `indexed`。 |
 | indexed | 结构化代码索引已完成的业务状态。 | M3 终态；只证明 AST 产物可核对，不表示已完成 M4 检索或 Issue 分析。 |
-| Embedding | 把文本或代码转换成一组数字，使语义相近内容在向量空间里更接近。 | M4 用于根据 Issue 语义召回相关代码片段。 |
-| 向量检索 | 根据 Embedding 距离查找语义相近内容。 | 与关键词和符号检索组合，避免只依赖单一检索方式。 |
-| Reranker | 对第一轮召回结果做更精细的重新排序。 | M4 把更可能与 Issue 相关的文件和片段排在前面。 |
+| Chunk | 带固定来源边界的可检索代码片段。 | M4 优先按 AST Symbol 起止行切分，超长 Symbol 使用重叠窗口；保存 path、行号和内容 hash。 |
+| Embedding | 把文本或代码转换成一组数字，使语义相近内容在向量空间里更接近。 | M4 默认用本机 `qwen3-embedding:0.6b` 生成 1024 维向量，不调用 OpenAI。 |
+| 混合检索 | 同时使用多种互补信号召回结果。 | M4 组合 PostgreSQL FTS、AST Symbol 和 pgvector 余弦相似度。 |
+| 向量检索 | 根据 Embedding 距离查找语义相近内容。 | M4 对小仓库使用 exact cosine scan，与关键词和符号检索组合。 |
+| RRF | Reciprocal Rank Fusion，只根据各通道名次融合，不直接比较不同量纲的原始分数。 | M4 使用 `1/(60+rank)` 汇总三路排名。 |
+| Reranker | 对第一轮召回结果做更精细的重新排序。 | M4 使用确定性规则，根据多通道、Symbol、path 和测试意图加小幅 bonus；尚未使用 LLM。 |
 | Recall@K | 正确结果中有多少出现在检索返回的前 K 项；越高表示遗漏越少。 | M4/M9 衡量相关文件召回能力，例如预期 4 个文件中前 10 项找到了 3 个，Recall@10 为 75%。 |
 | pgvector | PostgreSQL 的向量扩展，让业务数据和向量索引可放在同一数据库中。 | M4 引入；M1 只使用 PostgreSQL 的普通业务表。 |
+| retrieving | M4 正在生成 Chunk/Embedding 并执行混合检索的活跃状态。 | 浏览器继续轮询；失败会保存 Embedding、限制或一致性 failure code。 |
+| retrieved | M4 检索证据已原子保存的业务终态。 | 浏览器停止轮询并读取 Retrieval API；不表示已经完成 M5 需求分析。 |
+| Ollama | 在本机运行模型并提供 HTTP API 的运行时。 | M4 只通过 loopback `/api/embed` 生成公开仓库代码向量。 |
 | RQ | 基于 Redis 的 Python 后台任务队列，负责排队和由 Worker 消费任务。 | M2 仍未引入；观察到真实重启丢失、多实例或排队需求后再评估。 |
 | 质量 Gate | 只有满足测试、审查和边界条件才能进入下一阶段的门禁。 | M8 防止“模型说完成了”被当成真实完成。 |
 | ADR | Architecture Decision Record，记录某项架构选择的背景、决定、替代方案和后果。 | M0 用 ADR 保存关键取舍，方便以后知道“为什么当时这样选”。 |

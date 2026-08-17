@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.services.code_index_service import CodeIndexService
 from app.services.repository_service import RepositoryService
+from app.services.retrieval_service import RetrievalService
+from app.services.retrieval_store import SqlRetrievalStore
 from app.services.task_service import TaskService
 from app.workers.repository_queue import RepositoryQueue
 
@@ -61,4 +63,24 @@ def get_code_index_service(
 
 CodeIndexServiceDependency = Annotated[
     CodeIndexService, Depends(get_code_index_service)
+]
+
+
+def get_retrieval_service(
+    request: Request,
+    session: SessionDependency,
+) -> RetrievalService:
+    return RetrievalService(
+        SqlRetrievalStore(session),
+        request.app.state.git_client,
+        request.app.state.workspace,
+        request.app.state.embedding_provider,
+        request.app.state.chunk_limits,
+        request.app.state.retrieval_candidate_limit,
+        request.app.state.retrieval_result_limit,
+    )
+
+
+RetrievalServiceDependency = Annotated[
+    RetrievalService, Depends(get_retrieval_service)
 ]

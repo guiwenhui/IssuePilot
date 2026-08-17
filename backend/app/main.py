@@ -8,11 +8,14 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.tasks import router as tasks_router
 from app.core.config import Settings, get_settings
 from app.db.session import session_factory
+from app.embeddings.ollama import OllamaEmbeddingProvider
 from app.parsers.python_ast import ParserLimits
+from app.retrieval.chunker import ChunkLimits
 from app.services.parser_client import ParserClient
 from app.services.git_client import GitClient
 from app.services.code_index_service import CodeIndexNotReadyError
@@ -21,6 +24,9 @@ from app.services.repository_service import (
     RepositoryService,
     WorkspaceInconsistentError,
 )
+from app.services.retrieval_service import RetrievalService
+from app.services.retrieval_service import RetrievalNotReadyError
+from app.services.retrieval_store import SqlRetrievalStore
 from app.services.task_service import DatabaseUnavailableError, TaskNotFoundError
 from app.services.workspace import WorkspaceLimits, WorkspaceManager
 from app.workers.repository_queue import RepositoryQueue
@@ -65,6 +71,8 @@ def create_repository_runtime(
     WorkspaceManager,
     ParserClient,
     ParserLimits,
+    OllamaEmbeddingProvider,
+    ChunkLimits,
     RepositoryQueue,
 ]:
     workspace = WorkspaceManager(
@@ -84,12 +92,41 @@ def create_repository_runtime(
         settings.max_python_total_bytes,
         settings.max_code_entities,
     )
+    if settings.embedding_provider != "ollama":
+        raise ValueError("M4 supports only the ollama embedding provider")
+    embedding_provider = OllamaEmbeddingProvider(
+        settings.ollama_base_url,
+        settings.embedding_model,
+        settings.embedding_dimensions,
+        settings.embedding_timeout_seconds,
+        settings.embedding_batch_size,
+    )
+    chunk_limits = ChunkLimits(
+        settings.max_code_chunks,
+        settings.max_chunk_lines,
+        settings.max_symbol_chunk_lines,
+        settings.chunk_overlap_lines,
+        settings.max_chunk_characters,
+    )
+
+    def retrieval_service(session: AsyncSession) -> RetrievalService:
+        return RetrievalService(
+            SqlRetrievalStore(session),
+            git_client,
+            workspace,
+            embedding_provider,
+            chunk_limits,
+            settings.retrieval_candidate_limit,
+            settings.retrieval_result_limit,
+        )
+
     pipeline = RepositoryPipeline(
         git_client,
         workspace,
         parser_client,
         parser_limits,
         settings.max_code_preview_entries,
+        retrieval_service,
     )
 
     async def process_repository(task_id: UUID) -> None:
@@ -101,7 +138,15 @@ def create_repository_runtime(
         process_repository,
         settings.repository_clone_enabled,
     )
-    return git_client, workspace, parser_client, parser_limits, queue
+    return (
+        git_client,
+        workspace,
+        parser_client,
+        parser_limits,
+        embedding_provider,
+        chunk_limits,
+        queue,
+    )
 
 
 @asynccontextmanager
@@ -174,6 +219,17 @@ async def handle_code_index_not_ready(
     )
 
 
+async def handle_retrieval_not_ready(
+    request: Request, error: RetrievalNotReadyError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "RETRIEVAL_NOT_READY",
+        "代码检索结果尚未完成",
+    )
+
+
 async def handle_internal_error(request: Request, error: Exception) -> JSONResponse:
     logger.error(
         "Unhandled API error for %s %s",
@@ -203,12 +259,23 @@ def register_exception_handlers(application: FastAPI) -> None:
     application.add_exception_handler(
         CodeIndexNotReadyError, handle_code_index_not_ready
     )
+    application.add_exception_handler(
+        RetrievalNotReadyError, handle_retrieval_not_ready
+    )
     application.add_exception_handler(Exception, handle_internal_error)
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    git_client, workspace, parser_client, parser_limits, queue = (
+    (
+        git_client,
+        workspace,
+        parser_client,
+        parser_limits,
+        embedding_provider,
+        chunk_limits,
+        queue,
+    ) = (
         create_repository_runtime(settings)
     )
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -216,6 +283,10 @@ def create_app() -> FastAPI:
     application.state.workspace = workspace
     application.state.parser_client = parser_client
     application.state.parser_limits = parser_limits
+    application.state.embedding_provider = embedding_provider
+    application.state.chunk_limits = chunk_limits
+    application.state.retrieval_candidate_limit = settings.retrieval_candidate_limit
+    application.state.retrieval_result_limit = settings.retrieval_result_limit
     application.state.max_code_preview_entries = settings.max_code_preview_entries
     application.state.repository_queue = queue
     application.add_middleware(

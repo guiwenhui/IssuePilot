@@ -35,7 +35,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">IP</span>
           <span>IssuePilot</span>
         </a>
-        <span className="phase-badge">M3 · Python AST</span>
+        <span className="phase-badge">M4 · 混合检索</span>
       </header>
 
       <section className="hero" id="top">
@@ -55,7 +55,7 @@ export default function Home() {
         <aside className="milestone-card" aria-labelledby="milestone-title">
           <p className="card-label">BUILD PROGRESS</p>
           <h2 id="milestone-title">从架构基线开始</h2>
-          <div className="progress-track" aria-label="项目完成进度 40%">
+          <div className="progress-track" aria-label="项目完成进度 50%">
             <span />
           </div>
           <div className="milestone-list">
@@ -74,10 +74,15 @@ export default function Home() {
               <div><strong>仓库隔离</strong><small>安全校验、浅克隆与文件树</small></div>
               <span className="state">完成</span>
             </div>
-            <div className="milestone next">
+            <div className="milestone done">
               <span className="milestone-number">M3</span>
               <div><strong>Python 结构</strong><small>AST、符号、Import 与测试结构</small></div>
-              <span className="state">验收中</span>
+              <span className="state">完成</span>
+            </div>
+            <div className="milestone next">
+              <span className="milestone-number">M4</span>
+              <div><strong>混合检索</strong><small>关键词、Symbol、向量与可解释排名</small></div>
+              <span className="state">开发中</span>
             </div>
           </div>
         </aside>
@@ -85,14 +90,14 @@ export default function Home() {
 
       <section className="task-entry" aria-labelledby="task-entry-title">
         <div className="task-entry-copy">
-          <p className="eyebrow">M3 · INDEX PYTHON STRUCTURE</p>
-          <h2 id="task-entry-title">看清仓库里的 Python 结构</h2>
+          <p className="eyebrow">M4 · RETRIEVE CODE EVIDENCE</p>
+          <h2 id="task-entry-title">从 Issue 找到相关代码证据</h2>
           <p>
-            后台固定仓库 Commit，再在隔离进程提取文件、类、函数、Import 和测试结构。
+            后台固定仓库 Commit，建立 AST 结构，再用关键词、Symbol 和本地向量三路检索。
           </p>
           <div className="scope-note">
-            <strong>M3 边界</strong>
-            <span>只解析 tracked Python 文件；不做向量检索、不导入或执行仓库代码。</span>
+            <strong>M4 边界</strong>
+            <span>Embedding 在本机 Ollama 运行；不调用 OpenAI、不生成计划、不修改代码。</span>
           </div>
         </div>
         <TaskCreateForm />
@@ -121,11 +126,11 @@ export default function Home() {
       <section className="boundary" aria-labelledby="boundary-title">
         <div>
           <p className="eyebrow">CURRENT BOUNDARY</p>
-          <h2 id="boundary-title">代码结构已经可见，代码执行仍保持关闭。</h2>
+          <h2 id="boundary-title">相关代码已经可解释地排好序，代码执行仍保持关闭。</h2>
         </div>
         <p>
-          页面现在可以核对固定 Commit 下的 Python AST 结构，但不会导入或执行仓库模块。
-          关键词、向量检索和 Agent 工作流会在后续里程碑逐项通过审批接入。
+          页面现在可以核对固定 Commit 下的 AST 与三路检索证据，但不会导入或执行仓库模块。
+          Agent 分析、计划、Patch 和测试仍属于后续里程碑。
         </p>
       </section>
 

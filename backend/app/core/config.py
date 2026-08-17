@@ -23,6 +23,19 @@ class Settings(BaseSettings):
     max_code_entities: int = 50_000
     parser_timeout_seconds: int = 30
     max_code_preview_entries: int = 2_000
+    embedding_provider: str = "ollama"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    embedding_model: str = "qwen3-embedding:0.6b"
+    embedding_dimensions: int = 1_024
+    embedding_timeout_seconds: int = 60
+    embedding_batch_size: int = 32
+    max_code_chunks: int = 10_000
+    max_chunk_lines: int = 120
+    max_symbol_chunk_lines: int = 160
+    chunk_overlap_lines: int = 20
+    max_chunk_characters: int = 16_384
+    retrieval_candidate_limit: int = 50
+    retrieval_result_limit: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -70,6 +70,16 @@ class PipelineParserClient:
         )
 
 
+class PipelineRetrievalService:
+    def __init__(self, task: Task) -> None:
+        self.task = task
+        self.called = False
+
+    async def retrieve_task(self, task_id: object) -> None:
+        self.called = True
+        self.task.status = TaskStatus.RETRIEVED
+
+
 @pytest.mark.asyncio
 async def test_pipeline_clones_then_indexes_task(tmp_path: Path) -> None:
     task = Task(
@@ -97,15 +107,18 @@ async def test_pipeline_clones_then_indexes_task(tmp_path: Path) -> None:
     workspace = WorkspaceManager(
         tmp_path / "workspaces", WorkspaceLimits(10_000, 100, 100, 10)
     )
+    retrieval = PipelineRetrievalService(task)
     pipeline = RepositoryPipeline(
         PipelineGitClient(),
         workspace,
         PipelineParserClient(),
         ParserLimits(20, 20_000, 100_000, 200),
         2_000,
+        lambda current_session: retrieval,
     )
 
     await pipeline.process(session, task.id)
 
-    assert task.status == TaskStatus.INDEXED
+    assert task.status == TaskStatus.RETRIEVED
+    assert retrieval.called is True
     assert workspace.repository_path(task.id).is_dir()

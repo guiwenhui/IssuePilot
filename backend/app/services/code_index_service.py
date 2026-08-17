@@ -71,7 +71,11 @@ class CodeIndexService:
         self._limits = parser_limits
         self._max_preview_entries = max_preview_entries
 
-    async def index_task(self, task_id: UUID) -> None:
+    async def index_task(
+        self,
+        task_id: UUID,
+        success_status: TaskStatus = TaskStatus.INDEXED,
+    ) -> None:
         task = await self._get_task(task_id)
         if task.status not in {TaskStatus.CLONED, TaskStatus.INDEXING}:
             return
@@ -88,7 +92,7 @@ class CodeIndexService:
                 if entry.kind == "file" and entry.path.endswith(".py")
             ]
             result = await self._parser.parse(repository, paths, self._limits)
-            await self._persist_result(task, snapshot, result)
+            await self._persist_result(task, snapshot, result, success_status)
         except _known_index_errors() as error:
             code = _failure_code(error)
             await self._set_task_status(
@@ -243,6 +247,7 @@ class CodeIndexService:
         task: Task,
         snapshot: RepositorySnapshot,
         result: ParserResult,
+        success_status: TaskStatus,
     ) -> None:
         try:
             await self._session.execute(
@@ -252,7 +257,7 @@ class CodeIndexService:
             await self._session.flush()
             for parsed_file in result.files:
                 await self._add_file(task.id, parsed_file)
-            task.status = TaskStatus.INDEXED
+            task.status = success_status
             task.failure_code = None
             task.failure_message = None
             await self._session.commit()
