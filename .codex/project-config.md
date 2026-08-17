@@ -18,5 +18,6 @@
 - M3 implements isolated Python AST parsing, normalized code structure persistence, the `indexing/indexed` states, and a read-only code structure API only.
 - M4 implements bounded Python chunks, local Ollama embeddings, PostgreSQL FTS + AST Symbol + exact pgvector recall, RRF/rules ranking, the `retrieving/retrieved` states, and a read-only retrieval API only.
 - M5 implements a fixed four-node LangGraph, local Ollama `qwen3:8b` structured analysis/planning, evidence validation, the `analyzing/waiting_approval` states, and a read-only planning API only.
+- M6 implements PostgreSQL Checkpoint + Interrupt/Command, idempotent versioned decisions, plan-only local revision, triple-source recovery checks, approval UI, and `approved/rejected/recovery_blocked` terminal states only.
 - Later milestone capabilities must not be implemented early.
 - Development changes remain uncommitted until explicit user approval.

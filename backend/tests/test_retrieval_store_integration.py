@@ -1,8 +1,10 @@
 import hashlib
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.session import session_factory
 from app.models.code_index import CodeFile, CodeIndex, CodeSymbol
@@ -11,12 +13,41 @@ from app.models.retrieval import CodeChunk, RetrievalResult, RetrievalRun
 from app.models.task import Task
 from app.retrieval.chunker import CodeChunkDraft
 from app.schemas.task import TaskStatus
-from app.services.retrieval_service import RetrievalContext
+from app.services.retrieval_service import (
+    RetrievalContext,
+    RetrievalPersistenceError,
+)
 from app.services.retrieval_store import SqlRetrievalStore
 
 
 def embedding(first: float, second: float) -> list[float]:
     return [first, second] + [0.0] * 1022
+
+
+@pytest.mark.asyncio
+async def test_integrity_error_is_not_reported_as_database_unavailable() -> None:
+    session = Mock()
+    session.rollback = AsyncMock()
+    store = SqlRetrievalStore(session)
+    store._replace_chunks = AsyncMock(  # type: ignore[method-assign]
+        side_effect=IntegrityError("insert", {}, ValueError("duplicate"))
+    )
+    context = Mock()
+
+    with pytest.raises(RetrievalPersistenceError):
+        await store.persist_retrieval(
+            context,
+            [],
+            [],
+            [0.0] * 1024,
+            "fake",
+            "fake-v1",
+            1024,
+            50,
+            10,
+        )
+
+    session.rollback.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -159,6 +190,7 @@ async def test_store_persists_pgvector_lanes_and_rank_evidence() -> None:
                 .where(CodeChunk.task_id == task.id)
             ) == 2
             assert run.chunk_count == 2
+            assert run.chunker_version == "python-symbol-v2"
             assert run.keyword_candidate_count >= 1
             assert run.symbol_candidate_count == 1
             assert run.vector_candidate_count == 2

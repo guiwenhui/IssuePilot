@@ -24,6 +24,8 @@ class PlanningState(TypedDict, total=False):
     analysis: Dict[str, Any]
     plan: Dict[str, Any]
     planning_run_id: str
+    plan_version: int
+    decision: Dict[str, Any]
 
 
 class PlanningEvidenceBundle(BaseModel):
@@ -48,6 +50,18 @@ class PlanningGraphAdapter(Protocol):
         analysis: RequirementAnalysisDraft,
         plan: ImplementationPlanDraft,
     ) -> UUID:
+        ...
+
+    async def apply_decision(self, decision_id: UUID, action: str) -> None:
+        ...
+
+    async def persist_revision(
+        self,
+        decision_id: UUID,
+        bundle: PlanningEvidenceBundle,
+        plan: ImplementationPlanDraft,
+        feedback: str,
+    ) -> int:
         ...
 
 

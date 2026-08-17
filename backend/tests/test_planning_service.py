@@ -39,6 +39,7 @@ class FakeStore:
         self.status: Optional[TaskStatus] = None
         self.failure_code: Optional[str] = None
         self.load_error: Optional[Exception] = None
+        self.persist_args = None
 
     async def load_context(self, task_id: UUID) -> PlanningContext:
         if self.load_error:
@@ -46,6 +47,7 @@ class FakeStore:
         return self.context
 
     async def persist_planning(self, *args, **kwargs) -> UUID:
+        self.persist_args = args
         return uuid4()
 
     async def load_planning(self, task_id: UUID):
@@ -197,3 +199,14 @@ async def test_load_evidence_rejects_commit_or_worktree_mismatch(
 
     with pytest.raises(WorkspaceInconsistentError):
         await service.load_evidence(context.task_id)
+
+
+@pytest.mark.asyncio
+async def test_disabled_approval_persists_legacy_graph_version(
+    tmp_path: Path,
+) -> None:
+    service, store, _ = make_service(tmp_path, RecordingGraph())
+
+    await service.persist_plan(object(), object(), object())
+
+    assert store.persist_args[-1] == "planning-graph-v1"

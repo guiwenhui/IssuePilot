@@ -96,6 +96,57 @@ def test_long_symbol_uses_line_windows_with_overlap(tmp_path: Path) -> None:
     ]
 
 
+def test_parent_window_matching_method_keeps_only_specific_chunk(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "service.py"
+    source.write_text(
+        "class Service:\n"
+        "    value = 1\n"
+        "    other = 2\n"
+        "\n"
+        "    def run(self):\n"
+        "        return self.value\n",
+        encoding="utf-8",
+    )
+    code_file = indexed_file(source, "service.py")
+    class_symbol = IndexedSymbol(
+        id=uuid4(),
+        file_id=code_file.id,
+        kind="class",
+        qualified_name="Service",
+        signature=None,
+        start_line=1,
+        end_line=6,
+    )
+    method_symbol = IndexedSymbol(
+        id=uuid4(),
+        file_id=code_file.id,
+        kind="method",
+        qualified_name="Service.run",
+        signature="(self)",
+        start_line=5,
+        end_line=6,
+    )
+
+    chunks = build_python_chunks(
+        tmp_path,
+        [code_file],
+        [class_symbol, method_symbol],
+        {"service.py"},
+        ChunkLimits(100, 3, 4, 1, 16_384),
+    )
+
+    matching = [
+        chunk
+        for chunk in chunks
+        if (chunk.start_line, chunk.end_line) == (5, 6)
+    ]
+    assert len(matching) == 1
+    assert matching[0].kind == "method"
+    assert matching[0].symbol_id == method_symbol.id
+
+
 @pytest.mark.parametrize("unsafe_path", ["../secret.py", "/tmp/secret.py"])
 def test_chunker_rejects_paths_outside_repository(
     tmp_path: Path, unsafe_path: str

@@ -23,6 +23,8 @@ M4 启用 `vector` 扩展并新增 `code_chunks`、`retrieval_runs`、`retrieval
 
 M5 新增 `planning_runs`、`requirement_analyses`、`implementation_plans`。Run 对 Task 与 Retrieval Run 各自唯一，保存 Commit、Graph/Prompt/模型版本和 Evidence hash；Analysis 与 proposed v1 Plan 使用受限 JSONB 保存已验证结构。LangGraph Checkpoint 仍未引入，不能把这些业务产物当成 M6 的节点执行状态。
 
+M6 新增 `planning_decisions`、Plan 自引用版本关系和最多一个 proposed Plan 的条件唯一索引。Checkpoint 使用官方 PostgreSQL Saver，内部表位于独立 `issuepilot_checkpoint` schema，并通过显式 `python -m app.checkpoints.setup` 初始化；应用启动只验证，不建表。业务 migration 的 downgrade 不自动删除 Checkpoint schema，避免误删恢复证据。
+
 ## Alternatives
 
 ### SQLite
@@ -41,6 +43,8 @@ M5 新增 `planning_runs`、`requirement_analyses`、`implementation_plans`。Ru
 
 - MVP 可在同一数据库管理业务数据、索引元数据和向量，降低运维成本。
 - PostgreSQL Schema 需要清楚区分任务、事件、Checkpoint 元数据和代码索引。
+- Checkpoint 与业务事务无法成为一个原子事务；pending intent 是可重放的恢复桥梁。
 - 超大规模向量检索能力不是本阶段目标；规模增长后可基于指标迁移。
 - M4 migration 需要实际包含 `vector` 扩展的 PostgreSQL 镜像；普通 `postgres:16` 不能伪装兼容。
-- 数据库不可用时事务回滚，API 返回结构化 `503`，不会伪造一个只存在于浏览器内的任务。
+- 数据库连接不可用时事务回滚，API 返回结构化 `503`，不会伪造一个只存在于浏览器内的任务。
+- 唯一约束等持久化逻辑错误与连接故障分开分类；检索任务保存稳定失败证据，Repository Worker 未分类异常也不能让业务表永久停在假活跃状态。

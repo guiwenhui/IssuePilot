@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     planning_max_evidence_characters: int = Field(
         default=20_000, ge=1_000, le=30_000
     )
+    approval_workflow_enabled: bool = True
+    planning_decision_queue_capacity: int = Field(default=20, ge=1, le=1000)
+    planning_revision_limit: int = Field(default=5, ge=1, le=20)
+    checkpoint_database_url: str | None = None
+    checkpoint_schema: str = Field(
+        default="issuepilot_checkpoint", pattern=r"^[a-z][a-z0-9_]{0,62}$"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

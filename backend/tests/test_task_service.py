@@ -107,3 +107,49 @@ async def test_set_status_persists_business_failure() -> None:
     assert updated.status == TaskStatus.FAILED
     assert updated.failure_code == "CLONE_QUEUE_FULL"
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_set_failure_if_status_in_uses_one_conditional_update() -> None:
+    task_id = uuid4()
+    result = Mock()
+    result.scalar_one_or_none.return_value = task_id
+    session = Mock()
+    session.execute = AsyncMock(return_value=result)
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    service = TaskService(session)
+
+    updated = await service.set_failure_if_status_in(
+        task_id,
+        {TaskStatus.RETRIEVING, TaskStatus.ANALYZING},
+        "REPOSITORY_PIPELINE_FAILED",
+        "仓库后台处理失败",
+    )
+
+    assert updated is True
+    session.execute.assert_awaited_once()
+    statement = session.execute.await_args.args[0]
+    assert "tasks.status IN" in str(statement)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_set_failure_if_status_in_preserves_nonmatching_status() -> None:
+    result = Mock()
+    result.scalar_one_or_none.return_value = None
+    session = Mock()
+    session.execute = AsyncMock(return_value=result)
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    service = TaskService(session)
+
+    updated = await service.set_failure_if_status_in(
+        uuid4(),
+        {TaskStatus.RETRIEVING},
+        "REPOSITORY_PIPELINE_FAILED",
+        "仓库后台处理失败",
+    )
+
+    assert updated is False
+    session.commit.assert_awaited_once()

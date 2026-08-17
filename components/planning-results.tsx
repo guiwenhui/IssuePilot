@@ -1,15 +1,132 @@
-import type { Planning } from "@/lib/api/tasks";
+"use client";
+
+import { useRef, useState } from "react";
+
+import { ApiError, submitPlanningDecision } from "@/lib/api/tasks";
+import type {
+  Planning,
+  PlanningDecisionAction,
+  TaskStatus,
+} from "@/lib/api/tasks";
 
 
 type PlanningResultsProps = {
   planning: Planning;
+  taskId: string;
+  taskStatus: TaskStatus;
+  onDecisionSubmitted: () => void;
 };
 
 function ranks(values: number[]): string {
   return values.map((value) => `#${value}`).join(" · ");
 }
 
-export default function PlanningResults({ planning }: PlanningResultsProps) {
+function decisionLabel(action: PlanningDecisionAction): string {
+  return {
+    approve: "批准",
+    request_changes: "要求修改",
+    reject: "拒绝",
+  }[action];
+}
+
+function ApprovalControls({
+  planning,
+  taskId,
+  onSubmitted,
+}: {
+  planning: Planning;
+  taskId: string;
+  onSubmitted: () => void;
+}) {
+  const [mode, setMode] = useState<PlanningDecisionAction | null>(null);
+  const [comment, setComment] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const pendingKey = useRef<string | null>(null);
+
+  async function submit(action: PlanningDecisionAction) {
+    setSubmitting(true);
+    setError("");
+    pendingKey.current ??= crypto.randomUUID();
+    try {
+      await submitPlanningDecision(taskId, {
+        action,
+        expected_plan_version: planning.plan.version,
+        idempotency_key: pendingKey.current,
+        comment: action === "approve" ? null : comment,
+      });
+      pendingKey.current = null;
+      onSubmitted();
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError ? cause.message : "审批请求失败，请重试。",
+      );
+      if (cause instanceof ApiError && cause.status === 409) {
+        onSubmitted();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="approval-controls" aria-labelledby="approval-title">
+      <h3 id="approval-title">人工审批</h3>
+      <p>批准只确认计划；M7 才能修改代码或运行目标仓库测试。</p>
+      <div className="approval-actions">
+        <button disabled={submitting} onClick={() => void submit("approve")}>
+          批准计划
+        </button>
+        <button disabled={submitting} onClick={() => setMode("request_changes")}>
+          要求修改
+        </button>
+        <button
+          className="danger"
+          disabled={submitting}
+          onClick={() => setMode("reject")}
+        >
+          拒绝计划
+        </button>
+      </div>
+      {mode && mode !== "approve" ? (
+        <div className="approval-comment">
+          <label htmlFor="decision-comment">
+            {mode === "request_changes" ? "修改意见" : "拒绝原因"}
+          </label>
+          <textarea
+            id="decision-comment"
+            maxLength={2000}
+            required
+            value={comment}
+            onChange={(event) => {
+              pendingKey.current = null;
+              setComment(event.target.value);
+            }}
+          />
+          <div className="approval-actions">
+            <button
+              disabled={submitting || comment.trim().length === 0}
+              onClick={() => void submit(mode)}
+            >
+              确认{decisionLabel(mode)}
+            </button>
+            <button disabled={submitting} onClick={() => setMode(null)}>
+              取消
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+    </section>
+  );
+}
+
+export default function PlanningResults({
+  planning,
+  taskId,
+  taskStatus,
+  onDecisionSubmitted,
+}: PlanningResultsProps) {
   const { analysis, plan, run } = planning;
   return (
     <section className="planning" aria-labelledby="planning-title">
@@ -22,9 +139,21 @@ export default function PlanningResults({ planning }: PlanningResultsProps) {
       </div>
 
       <div className="planning-notice" role="note">
-        <strong>等待人工审批</strong>
-        <span>M5 只生成可审查计划；批准、修改或拒绝将在 M6 实现。</span>
+          <strong>
+            {taskStatus === "waiting_approval"
+              ? "等待人工审批"
+              : "审批状态已保存"}
+          </strong>
+        <span>M6 会保存决定和 Checkpoint；批准后仍不会修改仓库代码。</span>
       </div>
+
+      {taskStatus === "waiting_approval" && plan.status === "proposed" ? (
+        <ApprovalControls
+          planning={planning}
+          taskId={taskId}
+          onSubmitted={onDecisionSubmitted}
+        />
+      ) : null}
 
       <dl className="planning-meta">
         <div><dt>Commit</dt><dd className="mono">{planning.commit_sha}</dd></div>
@@ -142,6 +271,26 @@ export default function PlanningResults({ planning }: PlanningResultsProps) {
           )}
         </section>
       </div>
+
+      {planning.decisions.length > 0 ? (
+        <section className="decision-history">
+          <h3>审批历史</h3>
+          <ol className="planning-list">
+            {planning.decisions.map((decision) => (
+              <li key={decision.decision_id}>
+                <strong>{decisionLabel(decision.action)} · v{decision.plan_version}</strong>
+                <span>{decision.comment ?? "未填写补充说明"}</span>
+                <small>
+                  {decision.status}
+                  {decision.failure_message
+                    ? ` · ${decision.failure_message}`
+                    : ""}
+                </small>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
     </section>
   );
 }

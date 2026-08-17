@@ -13,7 +13,7 @@ IssuePilot 需要确定性的检索、分析、计划、审批、Patch、测试�
 
 M5 实际图固定为 `retrieve_code → analyze_requirement → create_plan → persist_plan`，使用 runtime context 注入 Store 与 Provider，不配置 Checkpointer，不开放工具或循环。`waiting_approval` 在 M5 只是已持久化业务终态，不伪装为 LangGraph Interrupt。
 
-M6 使用 Checkpoint 持久化安全节点状态，并使用 Interrupt 在计划批准处暂停。M8 加入按错误类型区分的有限重试和人工升级。
+M6 已将图升级为 `persist_plan → await_approval(Interrupt)`。外部决定通过 `Command` 恢复到 approve、reject 或 request_changes；修改只生成 Plan 新版本并再次 Interrupt。官方 PostgreSQL Checkpointer 保存节点状态，业务决定仍由独立表保存。M8 再加入按错误类型区分的有限重试和人工升级。
 
 ## Alternatives
 
@@ -33,5 +33,6 @@ M6 使用 Checkpoint 持久化安全节点状态，并使用 Interrupt 在计划
 
 - 节点状态和路由显式可见，便于理解、测试和评测。
 - Checkpoint 支持从安全节点恢复，但不保存模型完整思考过程。
+- 顶层 Checkpoint 使用 task UUID 作为 `thread_id`，`checkpoint_ns` 留空；Graph 版本由业务 Run 元数据约束。
 - 状态 Schema 和节点边界需要额外设计，代码量高于简单 Agent 循环。
 - 高风险工具仍受安全层与人工审批约束，LangGraph 本身不是授权机制。

@@ -17,7 +17,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
           <span className="brand-mark" aria-hidden="true">IP</span>
           <span>IssuePilot</span>
         </Link>
-        <span className="phase-badge">M5 · 需求规划</span>
+        <span className="phase-badge">M6 · 人工审批</span>
       </header>
 
       <section className="task-page" aria-label="任务状态">

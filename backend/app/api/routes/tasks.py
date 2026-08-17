@@ -5,13 +5,18 @@ from fastapi import APIRouter, Response, status
 from app.api.dependencies import (
     CodeIndexServiceDependency,
     PlanningServiceDependency,
+    PlanningQueueDependency,
     RetrievalServiceDependency,
     RepositoryQueueDependency,
     RepositoryServiceDependency,
     TaskServiceDependency,
 )
 from app.schemas.code_index import CodeStructureResponse
-from app.schemas.planning import PlanningResponse
+from app.schemas.planning import (
+    PlanningDecisionCreate,
+    PlanningDecisionResponse,
+    PlanningResponse,
+)
 from app.schemas.repository import RepositoryTreeResponse
 from app.schemas.retrieval import RetrievalResponse
 from app.schemas.task import ErrorResponse, TaskCreate, TaskResponse, TaskStatus
@@ -148,3 +153,31 @@ async def get_planning(
     planning = await service.get_planning(task_id)
     response.headers["Cache-Control"] = "no-store"
     return planning
+
+
+@router.post(
+    "/{task_id}/planning/decisions",
+    response_model=PlanningDecisionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def create_planning_decision(
+    task_id: UUID,
+    payload: PlanningDecisionCreate,
+    service: PlanningServiceDependency,
+    planning_queue: PlanningQueueDependency,
+    response: Response,
+) -> PlanningDecisionResponse:
+    decision = await service.submit_decision(task_id, payload)
+    if decision.status == "pending":
+        planning_queue.enqueue(decision.decision_id)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Location"] = (
+        f"/api/v1/tasks/{task_id}/planning"
+    )
+    return decision

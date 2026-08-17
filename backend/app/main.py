@@ -12,6 +12,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.planning_graph import build_planning_graph
+from app.checkpoints.postgres import (
+    CheckpointSchemaMissingError,
+    CheckpointerUnavailableError,
+    PostgresCheckpointFactory,
+)
 from app.api.routes.tasks import router as tasks_router
 from app.core.config import Settings, get_settings
 from app.db.session import session_factory
@@ -22,7 +27,9 @@ from app.retrieval.chunker import ChunkLimits
 from app.schemas.task import TaskStatus
 from app.services.parser_client import ParserClient
 from app.services.planning_service import (
+    ApprovalWorkflowDisabledError,
     PlanningLimits,
+    PlanningConflictError,
     PlanningNotReadyError,
     PlanningService,
 )
@@ -37,13 +44,27 @@ from app.services.repository_service import (
 from app.services.retrieval_service import RetrievalService
 from app.services.retrieval_service import RetrievalNotReadyError
 from app.services.retrieval_store import SqlRetrievalStore
-from app.services.task_service import DatabaseUnavailableError, TaskNotFoundError
+from app.services.task_service import (
+    DatabaseUnavailableError,
+    TaskNotFoundError,
+    TaskService,
+)
 from app.services.workspace import WorkspaceLimits, WorkspaceManager
 from app.workers.repository_queue import RepositoryQueue
+from app.workers.planning_queue import PlanningQueue, PlanningQueueFullError
 from app.workers.repository_pipeline import RepositoryPipeline
 
 
 logger = logging.getLogger(__name__)
+REPOSITORY_ACTIVE_STATES = frozenset(
+    {
+        TaskStatus.QUEUED,
+        TaskStatus.CLONING,
+        TaskStatus.INDEXING,
+        TaskStatus.RETRIEVING,
+        TaskStatus.ANALYZING,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -57,7 +78,11 @@ class RepositoryRuntime:
     llm_provider: OllamaChatProvider
     planning_graph: object
     planning_limits: PlanningLimits
+    checkpoint_factory: PostgresCheckpointFactory
+    approval_workflow_enabled: bool
+    planning_revision_limit: int
     queue: RepositoryQueue
+    planning_queue: PlanningQueue
 
 
 def error_response(
@@ -68,6 +93,7 @@ def error_response(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
+        headers={"Cache-Control": "no-store"},
         content={
             "error": {
                 "code": code,
@@ -96,6 +122,10 @@ def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
     llm_provider, planning_graph, planning_limits = _planning_components(
         settings
     )
+    checkpoint_factory = PostgresCheckpointFactory(
+        settings.checkpoint_database_url or settings.database_url,
+        settings.checkpoint_schema,
+    )
     pipeline = _repository_pipeline(
         settings,
         git_client,
@@ -107,16 +137,32 @@ def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
         llm_provider,
         planning_graph,
         planning_limits,
+        checkpoint_factory,
     )
 
     async def process_repository(task_id: UUID) -> None:
         async with session_factory() as session:
             await pipeline.process(session, task_id)
 
+    async def handle_repository_failure(
+        task_id: UUID, error: Exception
+    ) -> None:
+        await mark_repository_task_failed(task_id, error)
+
     queue = RepositoryQueue(
         settings.clone_queue_capacity,
         process_repository,
         settings.repository_clone_enabled,
+        handle_repository_failure,
+    )
+    planning_queue = _planning_queue(
+        settings,
+        git_client,
+        workspace,
+        llm_provider,
+        planning_graph,
+        planning_limits,
+        checkpoint_factory,
     )
     return RepositoryRuntime(
         git_client,
@@ -128,8 +174,31 @@ def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
         llm_provider,
         planning_graph,
         planning_limits,
+        checkpoint_factory,
+        settings.approval_workflow_enabled,
+        settings.planning_revision_limit,
         queue,
+        planning_queue,
     )
+
+
+async def mark_repository_task_failed(
+    task_id: UUID, error: Optional[Exception] = None
+) -> None:
+    if isinstance(error, DatabaseUnavailableError):
+        failure_code = "DATABASE_UNAVAILABLE"
+        failure_message = "数据库暂时不可用"
+    else:
+        failure_code = "REPOSITORY_PIPELINE_FAILED"
+        failure_message = "仓库后台处理失败"
+    async with session_factory() as session:
+        service = TaskService(session)
+        await service.set_failure_if_status_in(
+            task_id,
+            REPOSITORY_ACTIVE_STATES,
+            failure_code,
+            failure_message,
+        )
 
 
 def _workspace_and_parser(settings: Settings):
@@ -209,6 +278,7 @@ def _repository_pipeline(
     llm_provider: OllamaChatProvider,
     planning_graph: object,
     planning_limits: PlanningLimits,
+    checkpoint_factory: PostgresCheckpointFactory,
 ) -> RepositoryPipeline:
 
     def retrieval_service(session: AsyncSession) -> RetrievalService:
@@ -235,6 +305,9 @@ def _repository_pipeline(
             llm_provider,
             planning_graph,
             planning_limits,
+            checkpoint_factory,
+            settings.approval_workflow_enabled,
+            settings.planning_revision_limit,
         )
 
     return RepositoryPipeline(
@@ -248,11 +321,65 @@ def _repository_pipeline(
     )
 
 
+def _planning_queue(
+    settings: Settings,
+    git_client: GitClient,
+    workspace: WorkspaceManager,
+    provider: OllamaChatProvider,
+    graph: object,
+    limits: PlanningLimits,
+    checkpoint_factory: PostgresCheckpointFactory,
+) -> PlanningQueue:
+    async def process_work(kind: str, item_id: UUID) -> None:
+        async with session_factory() as session:
+            service = PlanningService(
+                SqlPlanningStore(session),
+                git_client,
+                workspace,
+                provider,
+                graph,
+                limits,
+                checkpoint_factory,
+                settings.approval_workflow_enabled,
+                settings.planning_revision_limit,
+            )
+            if kind == "decision":
+                await service.process_decision(item_id)
+            else:
+                await service.plan_task(item_id)
+
+    return PlanningQueue(
+        settings.planning_decision_queue_capacity,
+        process_work,
+        settings.approval_workflow_enabled,
+    )
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    if application.state.approval_workflow_enabled:
+        await application.state.checkpoint_factory.verify()
+    await application.state.planning_queue.start()
+    await _enqueue_pending_decisions(application)
     await application.state.repository_queue.start()
     yield
     await application.state.repository_queue.stop()
+    await application.state.planning_queue.stop()
+
+
+async def _enqueue_pending_decisions(application: FastAPI) -> None:
+    if not application.state.approval_workflow_enabled:
+        return
+    capacity = application.state.planning_decision_queue_capacity
+    async with session_factory() as session:
+        store = SqlPlanningStore(session)
+        decision_ids = await store.load_pending_decision_ids(capacity)
+        remaining = max(0, capacity - len(decision_ids))
+        task_ids = await store.load_recoverable_task_ids(remaining)
+    for decision_id in decision_ids:
+        application.state.planning_queue.enqueue(decision_id)
+    for task_id in task_ids:
+        application.state.planning_queue.enqueue_task(task_id)
 
 
 async def handle_validation_error(
@@ -340,6 +467,48 @@ async def handle_planning_not_ready(
     )
 
 
+async def handle_planning_conflict(
+    request: Request, error: PlanningConflictError
+) -> JSONResponse:
+    del request
+    return error_response(
+        status.HTTP_409_CONFLICT, error.code, error.message
+    )
+
+
+async def handle_approval_disabled(
+    request: Request, error: ApprovalWorkflowDisabledError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "APPROVAL_WORKFLOW_DISABLED",
+        "人工审批工作流未启用",
+    )
+
+
+async def handle_checkpointer_unavailable(
+    request: Request, error: Exception
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "CHECKPOINTER_UNAVAILABLE",
+        "工作流 Checkpoint 暂时不可用",
+    )
+
+
+async def handle_planning_queue_full(
+    request: Request, error: PlanningQueueFullError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "PLANNING_QUEUE_FULL",
+        "审批处理队列已满；请使用相同幂等键重试",
+    )
+
+
 async def handle_internal_error(request: Request, error: Exception) -> JSONResponse:
     logger.error(
         "Unhandled API error for %s %s",
@@ -375,6 +544,21 @@ def register_exception_handlers(application: FastAPI) -> None:
     application.add_exception_handler(
         PlanningNotReadyError, handle_planning_not_ready
     )
+    application.add_exception_handler(
+        PlanningConflictError, handle_planning_conflict
+    )
+    application.add_exception_handler(
+        ApprovalWorkflowDisabledError, handle_approval_disabled
+    )
+    application.add_exception_handler(
+        CheckpointerUnavailableError, handle_checkpointer_unavailable
+    )
+    application.add_exception_handler(
+        CheckpointSchemaMissingError, handle_checkpointer_unavailable
+    )
+    application.add_exception_handler(
+        PlanningQueueFullError, handle_planning_queue_full
+    )
     application.add_exception_handler(Exception, handle_internal_error)
 
 
@@ -391,10 +575,19 @@ def create_app() -> FastAPI:
     application.state.llm_provider = runtime.llm_provider
     application.state.planning_graph = runtime.planning_graph
     application.state.planning_limits = runtime.planning_limits
+    application.state.checkpoint_factory = runtime.checkpoint_factory
+    application.state.approval_workflow_enabled = (
+        runtime.approval_workflow_enabled
+    )
+    application.state.planning_revision_limit = runtime.planning_revision_limit
+    application.state.planning_decision_queue_capacity = (
+        settings.planning_decision_queue_capacity
+    )
     application.state.retrieval_candidate_limit = settings.retrieval_candidate_limit
     application.state.retrieval_result_limit = settings.retrieval_result_limit
     application.state.max_code_preview_entries = settings.max_code_preview_entries
     application.state.repository_queue = runtime.queue
+    application.state.planning_queue = runtime.planning_queue
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],

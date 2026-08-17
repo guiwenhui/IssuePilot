@@ -36,6 +36,8 @@ M4 允许“本地向量化但不执行”：Chunk 前复核 Snapshot/Index/HEAD
 
 M5 允许“本地规划但不执行”：Chat Provider 只接受 `127.0.0.1/localhost/::1` 的无凭据 HTTP URL，固定 `qwen3:8b`、`think=false`、temperature 0、上下文/输出/响应体上限。Issue、代码和注释均是不可信数据；模型没有工具和文件权限，输出还要通过 Pydantic 与 rank/path/symbol 确定性校验。M5 不向托管模型发送证据，不写文件、不执行命令，也不实现审批动作。
 
+M6 允许“审批与计划修订但不执行”：approve/reject 不调用模型；request_changes 只把原 Issue、不可变 Analysis、当前 Plan、反馈和同一 Evidence 发给 loopback qwen3:8b。恢复前必须核对 Checkpoint、业务表、Evidence hash、Worktree HEAD 和 clean；不一致进入 `recovery_blocked`。任何决定都不能写文件、执行测试、Commit、Push 或创建 PR。
+
 ## Alternatives
 
 ### 在主工作目录直接修改

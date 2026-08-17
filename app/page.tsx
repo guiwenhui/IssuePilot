@@ -16,8 +16,8 @@ const callChains = [
   {
     index: "03",
     title: "Agent 链",
-    summary: "检索 → 分析 → 规划 → 等待审批",
-    description: "M5 用固定 LangGraph 节点生成可审查计划，M6 再接审批。",
+    summary: "检索 → 分析 → 规划 → Interrupt → 人工决定",
+    description: "M6 持久化审批决定，并在三方核对后恢复 LangGraph。",
   },
   {
     index: "04",
@@ -35,7 +35,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">IP</span>
           <span>IssuePilot</span>
         </a>
-        <span className="phase-badge">M5 · 需求规划</span>
+        <span className="phase-badge">M6 · 人工审批</span>
       </header>
 
       <section className="hero" id="top">
@@ -55,7 +55,7 @@ export default function Home() {
         <aside className="milestone-card" aria-labelledby="milestone-title">
           <p className="card-label">BUILD PROGRESS</p>
           <h2 id="milestone-title">从架构基线开始</h2>
-          <div className="progress-track" aria-label="项目完成进度 60%">
+          <div className="progress-track" aria-label="项目完成进度 70%">
             <span />
           </div>
           <div className="milestone-list">
@@ -63,6 +63,11 @@ export default function Home() {
               <span className="milestone-number">M0</span>
               <div><strong>项目设计</strong><small>范围、架构与安全边界</small></div>
               <span className="state">完成</span>
+            </div>
+            <div className="milestone current">
+              <span className="milestone-number">M6</span>
+              <div><strong>人工审批</strong><small>Checkpoint、修订与安全恢复</small></div>
+              <span className="state">待验收</span>
             </div>
             <div className="milestone done">
               <span className="milestone-number">M1</span>
@@ -95,14 +100,14 @@ export default function Home() {
 
       <section className="task-entry" aria-labelledby="task-entry-title">
         <div className="task-entry-copy">
-          <p className="eyebrow">M5 · ANALYZE AND PLAN LOCALLY</p>
-          <h2 id="task-entry-title">从 Issue 到可审查实施计划</h2>
+          <p className="eyebrow">M6 · CHECKPOINTED HUMAN APPROVAL</p>
+          <h2 id="task-entry-title">从 Issue 到可审批实施计划</h2>
           <p>
             后台固定仓库 Commit，完成 AST 与混合检索，再由本机 qwen3:8b 生成结构化计划。
           </p>
           <div className="scope-note">
-            <strong>M5 边界</strong>
-            <span>代码证据只发往本机 Ollama；生成后等待人工审查，不修改代码、不执行测试。</span>
+            <strong>M6 边界</strong>
+            <span>代码证据只发往本机 Ollama；批准只确认计划，不修改代码、不执行测试。</span>
           </div>
         </div>
         <TaskCreateForm />
@@ -135,7 +140,7 @@ export default function Home() {
         </div>
         <p>
           页面可以核对固定 Commit 下的 AST、三路检索证据、需求分析与实施步骤。
-          批准/拒绝属于 M6，Patch 和测试属于 M7；M5 不提供伪审批按钮。
+          M6 可批准、要求修改或拒绝计划，并安全恢复工作流；Patch 和测试仍属于 M7。
         </p>
       </section>
 

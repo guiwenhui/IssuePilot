@@ -4,6 +4,7 @@ import pytest
 
 from app.agents.planning_graph import (
     GRAPH_VERSION,
+    LEGACY_GRAPH_VERSION,
     build_planning_graph,
 )
 from app.agents.planning_state import (
@@ -149,7 +150,8 @@ def test_planning_graph_has_fixed_linear_topology_without_checkpointer() -> None
         ("persist_plan", "__end__"),
     }
     assert graph.checkpointer is None
-    assert GRAPH_VERSION == "planning-graph-v1"
+    assert LEGACY_GRAPH_VERSION == "planning-graph-v1"
+    assert GRAPH_VERSION == "planning-graph-v2"
 
 
 @pytest.mark.asyncio

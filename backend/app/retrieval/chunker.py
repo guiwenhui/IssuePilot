@@ -7,7 +7,13 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from uuid import UUID
 
 
-CHUNKER_VERSION = "python-symbol-v1"
+CHUNKER_VERSION = "python-symbol-v2"
+CHUNK_SPECIFICITY = {
+    "module": 0,
+    "class": 1,
+    "function": 2,
+    "method": 2,
+}
 
 
 class UnsafeChunkSourceError(Exception):
@@ -74,11 +80,45 @@ def build_python_chunks(
         if code_file.parse_status != "parsed":
             continue
         lines = _read_source(repository, code_file, tracked_paths)
-        file_chunks = _chunks_for_file(code_file, lines, by_file, limits)
+        file_chunks = _deduplicate_chunks(
+            _chunks_for_file(code_file, lines, by_file, limits)
+        )
         chunks.extend(file_chunks)
         if len(chunks) > limits.max_chunks:
             raise RetrievalChunkLimitError("code chunk count exceeded")
     return chunks
+
+
+def _deduplicate_chunks(
+    chunks: Sequence[CodeChunkDraft],
+) -> List[CodeChunkDraft]:
+    unique: Dict[Tuple[str, int, int, str], CodeChunkDraft] = {}
+    for chunk in chunks:
+        key = (
+            chunk.path,
+            chunk.start_line,
+            chunk.end_line,
+            chunk.content_sha256,
+        )
+        current = unique.get(key)
+        if current is None or _is_more_specific(chunk, current):
+            unique[key] = chunk
+    return sorted(unique.values(), key=_chunk_order)
+
+
+def _is_more_specific(
+    candidate: CodeChunkDraft, current: CodeChunkDraft
+) -> bool:
+    return CHUNK_SPECIFICITY[candidate.kind] > CHUNK_SPECIFICITY[current.kind]
+
+
+def _chunk_order(chunk: CodeChunkDraft) -> Tuple[str, int, int, str]:
+    return (
+        chunk.path,
+        chunk.start_line,
+        chunk.end_line,
+        chunk.symbol_name or "",
+    )
 
 
 def _validate_limits(limits: ChunkLimits) -> None:
@@ -155,15 +195,7 @@ def _chunks_for_file(
         chunks.extend(_module_chunks(code_file, lines, start, end, limits))
     for symbol in symbols:
         chunks.extend(_symbol_chunks(code_file, symbol, lines, limits))
-    return sorted(
-        chunks,
-        key=lambda item: (
-            item.path,
-            item.start_line,
-            item.end_line,
-            item.symbol_name or "",
-        ),
-    )
+    return sorted(chunks, key=_chunk_order)
 
 
 def _uncovered_ranges(

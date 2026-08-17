@@ -31,6 +31,7 @@ type TaskStatusState = {
   planning?: Planning;
   error: string;
   lastSyncedAt?: Date;
+  refresh: () => void;
 };
 
 async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
@@ -39,7 +40,15 @@ async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
   let codeStructure: CodeStructure | undefined;
   let retrieval: Retrieval | undefined;
   let planning: Planning | undefined;
-  if (task.status === "waiting_approval") {
+  const planningStatuses = [
+    "waiting_approval",
+    "decision_pending",
+    "revising",
+    "approved",
+    "rejected",
+    "recovery_blocked",
+  ];
+  if (planningStatuses.includes(task.status)) {
     [repositoryTree, codeStructure, retrieval, planning] = await Promise.all([
       fetchRepositoryTree(taskId, signal),
       fetchCodeStructure(taskId, signal),
@@ -144,7 +153,11 @@ function messageForError(error: unknown): string {
 }
 
 export function useTaskStatus(taskId: string): TaskStatusState {
-  const [state, setState] = useState<TaskStatusState>({ error: "" });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refresh = () => setRefreshVersion((value) => value + 1);
+  const [state, setState] = useState<Omit<TaskStatusState, "refresh">>({
+    error: "",
+  });
   const timer = useRef<PollHandle | undefined>(undefined);
 
   useEffect(() => {
@@ -178,7 +191,7 @@ export function useTaskStatus(taskId: string): TaskStatusState {
       controller?.abort();
       if (timer.current !== undefined) clearTimeout(timer.current);
     };
-  }, [taskId]);
+  }, [taskId, refreshVersion]);
 
-  return state;
+  return { ...state, refresh };
 }

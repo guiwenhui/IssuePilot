@@ -12,6 +12,7 @@ from app.services.retrieval_service import RetrievalService
 from app.services.retrieval_store import SqlRetrievalStore
 from app.services.task_service import TaskService
 from app.workers.repository_queue import RepositoryQueue
+from app.workers.planning_queue import PlanningQueue
 
 
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
@@ -30,6 +31,15 @@ def get_repository_queue(request: Request) -> RepositoryQueue:
 
 RepositoryQueueDependency = Annotated[
     RepositoryQueue, Depends(get_repository_queue)
+]
+
+
+def get_planning_queue(request: Request) -> PlanningQueue:
+    return request.app.state.planning_queue
+
+
+PlanningQueueDependency = Annotated[
+    PlanningQueue, Depends(get_planning_queue)
 ]
 
 
@@ -99,6 +109,9 @@ def get_planning_service(
         request.app.state.llm_provider,
         request.app.state.planning_graph,
         request.app.state.planning_limits,
+        request.app.state.checkpoint_factory,
+        request.app.state.approval_workflow_enabled,
+        request.app.state.planning_revision_limit,
     )
 
 

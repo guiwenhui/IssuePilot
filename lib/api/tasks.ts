@@ -9,6 +9,11 @@ export type TaskStatus =
   | "retrieved"
   | "analyzing"
   | "waiting_approval"
+  | "decision_pending"
+  | "revising"
+  | "approved"
+  | "rejected"
+  | "recovery_blocked"
   | "failed";
 
 export type TaskFailure = {
@@ -152,6 +157,7 @@ export type Planning = {
     analysis_prompt_version: string;
     plan_prompt_version: string;
     evidence_count: number;
+    evidence_sha256: string;
     evidence_truncated: boolean;
     created_at: string;
   };
@@ -174,7 +180,10 @@ export type Planning = {
   };
   plan: {
     version: number;
-    status: "proposed";
+    status: "proposed" | "approved" | "rejected" | "superseded";
+    plan_id: string | null;
+    supersedes_plan_id: string | null;
+    revision_feedback: string | null;
     steps: Array<{
       order: number;
       title: string;
@@ -190,7 +199,42 @@ export type Planning = {
     }>;
     risk_notes: string[];
     created_at: string;
+    decided_at: string | null;
   };
+  decisions: PlanningDecisionHistory[];
+};
+
+export type PlanningDecisionAction = "approve" | "request_changes" | "reject";
+
+export type PlanningDecisionHistory = {
+  decision_id: string;
+  action: PlanningDecisionAction;
+  status: "pending" | "applied" | "failed";
+  plan_version: number;
+  comment: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  applied_at: string | null;
+};
+
+export type PlanningDecisionInput = {
+  action: PlanningDecisionAction;
+  expected_plan_version: number;
+  idempotency_key: string;
+  comment: string | null;
+};
+
+export type PlanningDecision = {
+  decision_id: string;
+  task_id: string;
+  action: PlanningDecisionAction;
+  status: "pending" | "applied" | "failed";
+  plan_version: number;
+  task_status: TaskStatus;
+  comment: string | null;
+  created_at: string;
+  applied_at: string | null;
 };
 
 export type CreateTaskInput = {
@@ -317,4 +361,19 @@ export async function fetchPlanning(
     { method: "GET", cache: "no-store", signal },
   );
   return parseResponse<Planning>(response);
+}
+
+export async function submitPlanningDecision(
+  taskId: string,
+  input: PlanningDecisionInput,
+): Promise<PlanningDecision> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/planning/decisions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return parseResponse<PlanningDecision>(response);
 }
