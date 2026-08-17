@@ -5,6 +5,7 @@ import {
   ApiError,
   createTask,
   fetchCodeStructure,
+  fetchRetrieval,
   fetchRepositoryTree,
   fetchTask,
 } from "./tasks.ts";
@@ -107,6 +108,63 @@ test("fetchCodeStructure requests the dedicated M3 endpoint", async () => {
   assert.equal(
     new URL(capturedRequest?.url ?? "").pathname,
     `/api/v1/tasks/${task.task_id}/code/structure`,
+  );
+  assert.equal(capturedRequest?.cache, "no-store");
+});
+
+
+test("fetchRetrieval requests the dedicated M4 endpoint", async () => {
+  let capturedRequest: Request | undefined;
+  const retrieval = {
+    task_id: task.task_id,
+    commit_sha: "a".repeat(40),
+    query: "Fix escape html output",
+    embedding: {
+      provider: "ollama",
+      model: "qwen3-embedding:0.6b",
+      dimensions: 1024,
+    },
+    versions: {
+      chunker: "python-symbol-v1",
+      fusion: "rrf-v1",
+      reranker: "rules-v1",
+    },
+    created_at: "2026-08-16T10:00:00Z",
+    counts: {
+      chunks: 12,
+      keyword_candidates: 8,
+      symbol_candidates: 3,
+      vector_candidates: 12,
+      results: 1,
+    },
+    results: [
+      {
+        rank: 1,
+        path: "src/escape.py",
+        symbol: "escape",
+        kind: "function",
+        start_line: 1,
+        end_line: 4,
+        snippet: "def escape(value): ...",
+        matched_channels: ["keyword", "symbol", "vector"],
+        channel_ranks: { keyword: 1, symbol: 1, vector: 2 },
+        channel_scores: { keyword: 0.7, symbol: 3, vector: 0.9 },
+        rrf_score: 0.04,
+        rerank_score: 0.07,
+      },
+    ],
+  };
+  globalThis.fetch = async (input, init) => {
+    capturedRequest = new Request(input, init);
+    return Response.json(retrieval);
+  };
+
+  const result = await fetchRetrieval(task.task_id);
+
+  assert.deepEqual(result, retrieval);
+  assert.equal(
+    new URL(capturedRequest?.url ?? "").pathname,
+    `/api/v1/tasks/${task.task_id}/retrieval`,
   );
   assert.equal(capturedRequest?.cache, "no-store");
 });

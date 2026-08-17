@@ -19,6 +19,8 @@ M2 增加业务终态规则：`created`、`queued`、`cloning` 继续轮询，`c
 
 M3 新任务在 Snapshot 生效时直接进入 `indexing`，完成后进入 `indexed`。前端把 `created/queued/cloning/indexing` 视为活跃，把历史 `cloned`、`indexed`、`failed` 视为终态；`indexed` 后分别读取 Tree 与 Code Structure API。这样避免短暂 `cloned` 竞态，也不会让升级前 M2 任务永久轮询。
 
+M4 新任务在 AST 成功事务中直接进入 `retrieving`，检索产物原子保存后进入 `retrieved`。前端把 `retrieving` 视为活跃，把 `retrieved` 视为终态；随后并行读取 Tree、Code Structure 和 Retrieval API。历史 M3 `indexed` 不自动补排并继续作为终态，避免升级后永久轮询。
+
 ## Alternatives
 
 ### SSE

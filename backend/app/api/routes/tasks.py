@@ -4,12 +4,14 @@ from fastapi import APIRouter, Response, status
 
 from app.api.dependencies import (
     CodeIndexServiceDependency,
+    RetrievalServiceDependency,
     RepositoryQueueDependency,
     RepositoryServiceDependency,
     TaskServiceDependency,
 )
 from app.schemas.code_index import CodeStructureResponse
 from app.schemas.repository import RepositoryTreeResponse
+from app.schemas.retrieval import RetrievalResponse
 from app.schemas.task import ErrorResponse, TaskCreate, TaskResponse, TaskStatus
 from app.workers.repository_queue import CloneQueueFullError
 
@@ -104,3 +106,23 @@ async def get_code_structure(
     structure = await service.get_structure(task_id)
     response.headers["Cache-Control"] = "no-store"
     return structure
+
+
+@router.get(
+    "/{task_id}/retrieval",
+    response_model=RetrievalResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def get_retrieval(
+    task_id: UUID,
+    service: RetrievalServiceDependency,
+    response: Response,
+) -> RetrievalResponse:
+    retrieval = await service.get_retrieval(task_id)
+    response.headers["Cache-Control"] = "no-store"
+    return retrieval

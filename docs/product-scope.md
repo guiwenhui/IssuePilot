@@ -2,8 +2,8 @@
 
 ## 文档状态
 
-- 状态：M0、M1、M2 已验收；M3 已实现、待产品验收
-- 日期：2026-08-14
+- 状态：M0、M1、M2、M3、M4 已验收
+- 日期：2026-08-16
 - 性质：产品范围基线，并同步标注各里程碑的真实落地状态
 
 IssuePilot 面向小型 Python 公开仓库。用户提交仓库 HTTPS 地址和 Issue 描述，系统定位相关代码、生成实施计划；用户批准后，系统在隔离工作区生成本地 Patch、运行白名单测试并审查结果。
@@ -86,9 +86,11 @@ M2 已实现并通过验收：首版严格限制到公开 `github.com` 仓库；
 
 M2 不初始化 Submodule、不下载 LFS、不解析或执行仓库代码，也不支持私有认证或 GitHub 以外的 Host。Redis 与 RQ 仍未引入；进程重启会丢失内存队列，这是本里程碑的已知限制，待真实运行数据出现后再评估升级。
 
-M3 已完成工程实现并进入验收：新任务在 Repository Snapshot 落库后进入 `indexing`，隔离 Python 子进程使用标准库 AST 提取 tracked `.py` 文件、类、函数、方法、Import 和测试结构，结果以 `indexed` 终态绑定固定 Commit 保存到 PostgreSQL。单文件语法错误保留为警告；超时、超限、无 Python 文件或工作区不一致保存任务级失败证据。
+M3 已通过产品验收：新任务在 Repository Snapshot 落库后进入 `indexing`，隔离 Python 子进程使用标准库 AST 提取 tracked `.py` 文件、类、函数、方法、Import 和测试结构，结果以 `indexed` 终态绑定固定 Commit 保存到 PostgreSQL。单文件语法错误保留为警告；超时、超限、无 Python 文件或工作区不一致保存任务级失败证据。
 
-M3 不做关键词或向量检索，不引入 pgvector、LangGraph 或 LLM，不解析第三方依赖，也不导入或执行仓库代码。升级前已经处于 `cloned` 的 M2 历史任务不会自动补排索引。
+M4 已通过产品验收：新任务在 AST 成功后直接进入 `retrieving`，按 Symbol 和模块边界生成带 path/行号/hash 的 Chunk；PostgreSQL FTS、M3 Symbol 和 pgvector 1024 维 exact cosine scan 各召回最多 50 条，经 RRF 和确定性规则重排后保存前 10 条证据并进入 `retrieved`。Embedding 默认由本机 Ollama `qwen3-embedding:0.6b` 生成，不调用 OpenAI API。
+
+M4 不引入 LangGraph、LLM 需求分析、计划、Patch 或测试执行；升级前已经处于 `indexed` 的 M3 历史任务不会自动补排。读取结果时仍同时核对 Repository Snapshot、Code Index、Retrieval Run 和真实 Worktree HEAD/clean。冻结 MarkupSafe 评测集的真实本地模型 Recall@10 为 100%。
 
 ## 人工审批边界
 

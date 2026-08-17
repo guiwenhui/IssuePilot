@@ -15,6 +15,8 @@ class TaskStatus(str, Enum):
     CLONED = "cloned"
     INDEXING = "indexing"
     INDEXED = "indexed"
+    RETRIEVING = "retrieving"
+    RETRIEVED = "retrieved"
     FAILED = "failed"
 
 

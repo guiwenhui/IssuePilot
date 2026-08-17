@@ -1,8 +1,8 @@
 # IssuePilot
 
-IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0、M1、M2 已通过产品验收；M3 已实现并待验收。用户可提交公开 GitHub 仓库和 Issue，后台在受控目录完成浅克隆和 Python AST 解析，页面展示 PostgreSQL 中的业务状态、固定 Commit、真实文件树和结构化代码证据。
+IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0、M1、M2、M3、M4 已通过产品验收。用户可提交公开 GitHub 仓库和 Issue，后台在受控目录完成浅克隆、Python AST 解析和三路混合检索，页面展示 PostgreSQL 中的业务状态、固定 Commit、真实文件树、结构化代码和排名证据。
 
-M3 只读取 Git tracked Python 源码并提取结构，不做检索、不启动 Agent，也不导入或执行仓库代码。后续能力及边界见 [`docs/product-scope.md`](docs/product-scope.md)。
+M4 使用 PostgreSQL FTS、M3 Symbol 和本机 Ollama Embedding 召回代码，经 RRF 与确定性规则重排；不调用 OpenAI、不启动 Agent，也不导入、执行或修改仓库代码。后续能力及边界见 [`docs/product-scope.md`](docs/product-scope.md)。
 
 ## 当前架构
 
@@ -10,15 +10,17 @@ M3 只读取 Git tracked Python 源码并提取结构，不做检索、不启动
 - FastAPI + Pydantic：API 契约、输入校验与结构化错误。
 - SQLAlchemy Async + asyncpg：任务业务逻辑与 PostgreSQL 访问。
 - Alembic：显式管理数据库 Schema；应用启动时不会自动建表。
-- PostgreSQL 16：任务业务状态的权威来源。
+- PostgreSQL 16 + pgvector：任务业务状态、代码 Chunk、向量和检索证据的权威来源。
 - 进程内单消费者队列：在 HTTP 请求外串行执行 M2 克隆；服务重启不会恢复内存队列。
 - Git CLI + 隔离工作区：以固定参数浅克隆，工作区是真实仓库文件的权威来源。
 - 隔离 Python Parser：以固定 argv 子进程运行标准库 AST，限制文件、字节、条目和时间。
 - PostgreSQL 代码索引：保存与固定 Commit 绑定的文件、符号、Import 和测试结构。
+- 本机 Ollama：使用 `qwen3-embedding:0.6b` 生成 1024 维文档与查询向量。
+- Retrieval Service：生成安全 Chunk，执行 FTS/Symbol/Vector exact scan、RRF 和规则重排。
 
 ## 本地运行
 
-以下命令均从项目根目录开始。需要 Node.js、Python 3.9+、Git CLI 与 Docker。
+以下命令均从项目根目录开始。需要 Node.js、Python 3.9+、Git CLI、Docker 与 Ollama。
 
 1. 安装前端依赖：
 
@@ -44,12 +46,19 @@ M3 只读取 Git tracked Python 源码并提取结构，不做检索、不启动
      -v issuepilot-postgres-data:/var/lib/postgresql/data \
      --health-cmd='pg_isready -U issuepilot -d issuepilot' \
      --health-interval=2s --health-timeout=2s --health-retries=15 \
-     -d postgres:16
+     -d pgvector/pgvector:pg16
    ```
 
-   容器已存在时使用 `docker start issuepilot-postgres`。Docker Compose 属于 M10，不在 M2 提前引入。
+   容器已存在时使用 `docker start issuepilot-postgres`。旧 `postgres:16` 镜像不包含 M4 所需的 `vector` 扩展；迁移前应先备份，并改用 `pgvector/pgvector:pg16` 或单独的 pgvector 测试容器。Docker Compose 属于 M10。
 
-4. 复制环境变量并执行 migration：
+4. 启动 Ollama 并下载本地 Embedding 模型：
+
+   ```bash
+   ollama serve
+   ollama pull qwen3-embedding:0.6b
+   ```
+
+5. 复制环境变量并执行 migration：
 
    ```bash
    cp .env.example .env
@@ -65,13 +74,13 @@ M3 只读取 Git tracked Python 源码并提取结构，不做检索、不启动
      ../.venv/bin/alembic -c alembic.ini upgrade head
    ```
 
-5. 在 `backend` 目录启动 API：
+6. 在 `backend` 目录启动 API：
 
    ```bash
    ../.venv/bin/uvicorn app.main:app --reload --port 8000
    ```
 
-6. 另开终端，在项目根目录启动网页：
+7. 另开终端，在项目根目录启动网页：
 
    ```bash
    npm run dev
@@ -85,9 +94,10 @@ M3 只读取 Git tracked Python 源码并提取结构，不做检索、不启动
 - `GET /api/v1/tasks/{task_id}`：查询已持久化任务，响应禁止缓存。
 - `GET /api/v1/tasks/{task_id}/repository/tree`：在核对工作区与 Commit 后返回仓库快照。
 - `GET /api/v1/tasks/{task_id}/code/structure`：在核对索引、Snapshot 与真实工作区后返回受限 Python 结构预览。
+- `GET /api/v1/tasks/{task_id}/retrieval`：在再次核对 Commit 与真实工作区后返回查询、模型、候选数、代码片段、通道排名和融合分数。
 - 错误使用统一 `{ "error": { "code", "message", "details" } }` 结构；输入错误为 `422`，任务不存在为 `404`，快照未就绪/不一致为 `409`，数据库不可用为 `503`。
 
-M3 继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。默认工作区为 `/tmp/issuepilot-workspaces`，克隆与 AST 资源限制见 [`.env.example`](.env.example)。仓库内容不会被导入、执行或初始化 Submodule/LFS；Parser 只读取 tracked 普通 `.py` 文件。
+M4 继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。默认工作区为 `/tmp/issuepilot-workspaces`，克隆、AST、Chunk 和 Embedding 资源限制见 [`.env.example`](.env.example)。仓库内容不会被导入、执行或初始化 Submodule/LFS；只有 tracked 普通 `.py` 文件进入 Parser 和本机 Embedding。
 
 ## 验证命令
 
@@ -99,6 +109,7 @@ npm run build
 
 cd backend
 ../.venv/bin/python -m pytest --cov=app --cov-report=term-missing
+RUN_OLLAMA_LIVE=1 ../.venv/bin/python -m pytest tests/test_retrieval_evaluation.py -m ollama -s
 ../.venv/bin/alembic -c alembic.ini current
 ```
 

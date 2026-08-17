@@ -19,6 +19,8 @@ M2 在 `tasks` 增加失败码/消息和状态索引，并新增一对一 `repos
 
 M3 新增 `code_indexes`、`code_files`、`code_symbols`、`code_imports` 规范化表。它们保存与 Repository Snapshot Commit 绑定的 Python 结构，便于 M4 按路径、符号和 Import 查询；不提前保存 Embedding。读取结构前仍核对真实工作区。
 
+M4 启用 `vector` 扩展并新增 `code_chunks`、`retrieval_runs`、`retrieval_results`。Chunk 保存 `TSVECTOR` 和固定 `vector(1024)`；Run 保存 Commit、Issue hash、Provider/模型、算法版本与候选计数；Result 保存三路 rank/score、RRF 和最终重排分数。小仓库使用 exact cosine scan，不建立 HNSW/IVFFlat；数据规模和延迟出现证据后再评估 ANN。
+
 ## Alternatives
 
 ### SQLite
@@ -38,5 +40,5 @@ M3 新增 `code_indexes`、`code_files`、`code_symbols`、`code_imports` 规范
 - MVP 可在同一数据库管理业务数据、索引元数据和向量，降低运维成本。
 - PostgreSQL Schema 需要清楚区分任务、事件、Checkpoint 元数据和代码索引。
 - 超大规模向量检索能力不是本阶段目标；规模增长后可基于指标迁移。
-- M1 不需要 pgvector，避免把未使用能力提前写入实现。
+- M4 migration 需要实际包含 `vector` 扩展的 PostgreSQL 镜像；普通 `postgres:16` 不能伪装兼容。
 - 数据库不可用时事务回滚，API 返回结构化 `503`，不会伪造一个只存在于浏览器内的任务。

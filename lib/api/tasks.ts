@@ -5,6 +5,8 @@ export type TaskStatus =
   | "cloned"
   | "indexing"
   | "indexed"
+  | "retrieving"
+  | "retrieved"
   | "failed";
 
 export type TaskFailure = {
@@ -90,6 +92,46 @@ export type CodeStructure = {
   };
   truncated: boolean;
   files: CodeStructureFile[];
+};
+
+export type RetrievalResult = {
+  rank: number;
+  path: string;
+  symbol: string | null;
+  kind: string;
+  start_line: number;
+  end_line: number;
+  snippet: string;
+  matched_channels: string[];
+  channel_ranks: Record<string, number>;
+  channel_scores: Record<string, number>;
+  rrf_score: number;
+  rerank_score: number;
+};
+
+export type Retrieval = {
+  task_id: string;
+  commit_sha: string;
+  query: string;
+  embedding: {
+    provider: string;
+    model: string;
+    dimensions: number;
+  };
+  versions: {
+    chunker: string;
+    fusion: string;
+    reranker: string;
+  };
+  created_at: string;
+  counts: {
+    chunks: number;
+    keyword_candidates: number;
+    symbol_candidates: number;
+    vector_candidates: number;
+    results: number;
+  };
+  results: RetrievalResult[];
 };
 
 export type CreateTaskInput = {
@@ -194,4 +236,15 @@ export async function fetchCodeStructure(
     { method: "GET", cache: "no-store", signal },
   );
   return parseResponse<CodeStructure>(response);
+}
+
+export async function fetchRetrieval(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<Retrieval> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/retrieval`,
+    { method: "GET", cache: "no-store", signal },
+  );
+  return parseResponse<Retrieval>(response);
 }

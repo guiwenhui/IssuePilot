@@ -32,6 +32,8 @@ M2 的实际实现进一步收紧为：
 
 M3 允许“解析但不执行”：父进程只把 Git tracked 普通 `.py` 交给固定 argv Python 子进程；Runner 不接收 URL 或数据库凭据，不 Import 仓库模块，不跟随 symlink，并受文件数、字节、条目与墙钟时间限制。解析产物通过受限 JSON Schema 返回，异常摘要截断后持久化。
 
+M4 允许“本地向量化但不执行”：Chunk 前复核 Snapshot/Index/HEAD/clean/tracked hash，只读取普通 `.py`；限制 Chunk 数、窗口、字符和 Embedding 批次。默认 Provider 固定为 loopback Ollama，模型为 `qwen3-embedding:0.6b`，请求使用 `truncate=false`，响应必须数量一致、1024 维且全为有限数。M4 不向 OpenAI 或其他外部服务发送代码。
+
 ## Alternatives
 
 ### 在主工作目录直接修改

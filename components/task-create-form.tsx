@@ -67,7 +67,7 @@ export default function TaskCreateForm() {
           required
           disabled={isSubmitting}
         />
-        <small id="repository-help">M3 仅解析公开 github.com 仓库中的 tracked Python 文件。</small>
+        <small id="repository-help">M4 仅处理公开 github.com 仓库中的 tracked Python 文件，并在本机生成向量。</small>
         {fieldErrors.repository_url ? (
           <p className="field-error" id="repository-error">
             {fieldErrors.repository_url}
@@ -104,7 +104,7 @@ export default function TaskCreateForm() {
       ) : null}
 
       <button className="primary-button" type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "正在创建任务…" : "创建并解析 Python 仓库"}
+        {isSubmitting ? "正在创建任务…" : "创建并检索 Python 仓库"}
       </button>
     </form>
   );
