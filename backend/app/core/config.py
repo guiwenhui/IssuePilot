@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,21 @@ class Settings(BaseSettings):
     max_chunk_characters: int = 16_384
     retrieval_candidate_limit: int = 50
     retrieval_result_limit: int = 10
+    planning_enabled: bool = True
+    llm_provider: str = "ollama"
+    llm_model: str = "qwen3:8b"
+    llm_base_url: str = "http://127.0.0.1:11434"
+    llm_timeout_seconds: int = Field(default=180, ge=1, le=600)
+    llm_context_window: int = Field(default=16_384, ge=1_024, le=131_072)
+    llm_max_output_tokens: int = Field(default=2_048, ge=128, le=16_384)
+    llm_max_response_bytes: int = Field(default=65_536, ge=1_024, le=1_048_576)
+    planning_evidence_limit: int = Field(default=10, ge=1, le=10)
+    planning_max_snippet_characters: int = Field(
+        default=3_000, ge=100, le=3_000
+    )
+    planning_max_evidence_characters: int = Field(
+        default=20_000, ge=1_000, le=30_000
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

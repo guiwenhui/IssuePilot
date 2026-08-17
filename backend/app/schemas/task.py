@@ -17,6 +17,8 @@ class TaskStatus(str, Enum):
     INDEXED = "indexed"
     RETRIEVING = "retrieving"
     RETRIEVED = "retrieved"
+    ANALYZING = "analyzing"
+    WAITING_APPROVAL = "waiting_approval"
     FAILED = "failed"
 
 

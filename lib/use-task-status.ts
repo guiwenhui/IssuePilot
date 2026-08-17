@@ -6,10 +6,12 @@ import {
   ApiError,
   CodeStructure,
   fetchCodeStructure,
+  fetchPlanning,
   fetchRepositoryTree,
   fetchRetrieval,
   fetchTask,
   RepositoryTree,
+  Planning,
   Retrieval,
   Task,
 } from "@/lib/api/tasks";
@@ -26,6 +28,7 @@ type TaskStatusState = {
   repositoryTree?: RepositoryTree;
   codeStructure?: CodeStructure;
   retrieval?: Retrieval;
+  planning?: Planning;
   error: string;
   lastSyncedAt?: Date;
 };
@@ -35,7 +38,15 @@ async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
   let repositoryTree: RepositoryTree | undefined;
   let codeStructure: CodeStructure | undefined;
   let retrieval: Retrieval | undefined;
-  if (task.status === "retrieved") {
+  let planning: Planning | undefined;
+  if (task.status === "waiting_approval") {
+    [repositoryTree, codeStructure, retrieval, planning] = await Promise.all([
+      fetchRepositoryTree(taskId, signal),
+      fetchCodeStructure(taskId, signal),
+      fetchRetrieval(taskId, signal),
+      fetchPlanning(taskId, signal),
+    ]);
+  } else if (task.status === "retrieved") {
     [repositoryTree, codeStructure, retrieval] = await Promise.all([
       fetchRepositoryTree(taskId, signal),
       fetchCodeStructure(taskId, signal),
@@ -49,9 +60,11 @@ async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
   } else if (task.status === "cloned") {
     repositoryTree = await fetchRepositoryTree(taskId, signal);
   } else if (task.status === "failed") {
-    [repositoryTree, codeStructure] = await Promise.all([
+    [repositoryTree, codeStructure, retrieval, planning] = await Promise.all([
       fetchTreeAfterFailure(taskId, signal),
       fetchCodeStructureAfterFailure(taskId, signal),
+      fetchRetrievalAfterFailure(taskId, signal),
+      fetchPlanningAfterFailure(taskId, signal),
     ]);
   }
   return {
@@ -59,8 +72,37 @@ async function loadTaskSnapshot(taskId: string, signal: AbortSignal) {
     repositoryTree,
     codeStructure,
     retrieval,
+    planning,
     shouldContinue: shouldContinueTaskPolling(task.status),
   };
+}
+
+async function fetchRetrievalAfterFailure(
+  taskId: string,
+  signal: AbortSignal,
+): Promise<Retrieval | undefined> {
+  try {
+    return await fetchRetrieval(taskId, signal);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "RETRIEVAL_NOT_READY") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function fetchPlanningAfterFailure(
+  taskId: string,
+  signal: AbortSignal,
+): Promise<Planning | undefined> {
+  try {
+    return await fetchPlanning(taskId, signal);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "PLANNING_NOT_READY") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function fetchCodeStructureAfterFailure(

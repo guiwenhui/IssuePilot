@@ -16,8 +16,8 @@ const callChains = [
   {
     index: "03",
     title: "Agent 链",
-    summary: "分析 → 规划 → 审批 → Patch → 测试 → 审查",
-    description: "通过显式节点和人工确认控制研发工作流。",
+    summary: "检索 → 分析 → 规划 → 等待审批",
+    description: "M5 用固定 LangGraph 节点生成可审查计划，M6 再接审批。",
   },
   {
     index: "04",
@@ -35,7 +35,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">IP</span>
           <span>IssuePilot</span>
         </a>
-        <span className="phase-badge">M4 · 混合检索</span>
+        <span className="phase-badge">M5 · 需求规划</span>
       </header>
 
       <section className="hero" id="top">
@@ -55,7 +55,7 @@ export default function Home() {
         <aside className="milestone-card" aria-labelledby="milestone-title">
           <p className="card-label">BUILD PROGRESS</p>
           <h2 id="milestone-title">从架构基线开始</h2>
-          <div className="progress-track" aria-label="项目完成进度 50%">
+          <div className="progress-track" aria-label="项目完成进度 60%">
             <span />
           </div>
           <div className="milestone-list">
@@ -79,10 +79,15 @@ export default function Home() {
               <div><strong>Python 结构</strong><small>AST、符号、Import 与测试结构</small></div>
               <span className="state">完成</span>
             </div>
-            <div className="milestone next">
+            <div className="milestone done">
               <span className="milestone-number">M4</span>
               <div><strong>混合检索</strong><small>关键词、Symbol、向量与可解释排名</small></div>
-              <span className="state">开发中</span>
+              <span className="state">完成</span>
+            </div>
+            <div className="milestone done">
+              <span className="milestone-number">M5</span>
+              <div><strong>需求规划</strong><small>本地模型、结构化分析与实施计划</small></div>
+              <span className="state">完成</span>
             </div>
           </div>
         </aside>
@@ -90,14 +95,14 @@ export default function Home() {
 
       <section className="task-entry" aria-labelledby="task-entry-title">
         <div className="task-entry-copy">
-          <p className="eyebrow">M4 · RETRIEVE CODE EVIDENCE</p>
-          <h2 id="task-entry-title">从 Issue 找到相关代码证据</h2>
+          <p className="eyebrow">M5 · ANALYZE AND PLAN LOCALLY</p>
+          <h2 id="task-entry-title">从 Issue 到可审查实施计划</h2>
           <p>
-            后台固定仓库 Commit，建立 AST 结构，再用关键词、Symbol 和本地向量三路检索。
+            后台固定仓库 Commit，完成 AST 与混合检索，再由本机 qwen3:8b 生成结构化计划。
           </p>
           <div className="scope-note">
-            <strong>M4 边界</strong>
-            <span>Embedding 在本机 Ollama 运行；不调用 OpenAI、不生成计划、不修改代码。</span>
+            <strong>M5 边界</strong>
+            <span>代码证据只发往本机 Ollama；生成后等待人工审查，不修改代码、不执行测试。</span>
           </div>
         </div>
         <TaskCreateForm />
@@ -126,11 +131,11 @@ export default function Home() {
       <section className="boundary" aria-labelledby="boundary-title">
         <div>
           <p className="eyebrow">CURRENT BOUNDARY</p>
-          <h2 id="boundary-title">相关代码已经可解释地排好序，代码执行仍保持关闭。</h2>
+          <h2 id="boundary-title">计划已经可审查地形成，代码执行仍保持关闭。</h2>
         </div>
         <p>
-          页面现在可以核对固定 Commit 下的 AST 与三路检索证据，但不会导入或执行仓库模块。
-          Agent 分析、计划、Patch 和测试仍属于后续里程碑。
+          页面可以核对固定 Commit 下的 AST、三路检索证据、需求分析与实施步骤。
+          批准/拒绝属于 M6，Patch 和测试属于 M7；M5 不提供伪审批按钮。
         </p>
       </section>
 

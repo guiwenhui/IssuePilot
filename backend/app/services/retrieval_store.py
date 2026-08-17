@@ -104,6 +104,7 @@ class SqlRetrievalStore:
         provider_dimensions: int,
         candidate_limit: int,
         result_limit: int,
+        success_status: TaskStatus = TaskStatus.RETRIEVED,
     ) -> None:
         _validate_vectors(chunks, embeddings, query_embedding, provider_dimensions)
         try:
@@ -123,7 +124,7 @@ class SqlRetrievalStore:
                 provider_model,
                 provider_dimensions,
             )
-            context.task.status = TaskStatus.RETRIEVED
+            context.task.status = success_status
             context.task.failure_code = None
             context.task.failure_message = None
             await self._session.commit()

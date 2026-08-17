@@ -2,8 +2,8 @@
 
 ## 文档状态
 
-- 状态：M0、M1、M2、M3、M4 已验收
-- 日期：2026-08-16
+- 状态：M0–M5 已验收
+- 日期：2026-08-17
 - 性质：产品范围基线，并同步标注各里程碑的真实落地状态
 
 IssuePilot 面向小型 Python 公开仓库。用户提交仓库 HTTPS 地址和 Issue 描述，系统定位相关代码、生成实施计划；用户批准后，系统在隔离工作区生成本地 Patch、运行白名单测试并审查结果。
@@ -91,6 +91,10 @@ M3 已通过产品验收：新任务在 Repository Snapshot 落库后进入 `ind
 M4 已通过产品验收：新任务在 AST 成功后直接进入 `retrieving`，按 Symbol 和模块边界生成带 path/行号/hash 的 Chunk；PostgreSQL FTS、M3 Symbol 和 pgvector 1024 维 exact cosine scan 各召回最多 50 条，经 RRF 和确定性规则重排后保存前 10 条证据并进入 `retrieved`。Embedding 默认由本机 Ollama `qwen3-embedding:0.6b` 生成，不调用 OpenAI API。
 
 M4 不引入 LangGraph、LLM 需求分析、计划、Patch 或测试执行；升级前已经处于 `indexed` 的 M3 历史任务不会自动补排。读取结果时仍同时核对 Repository Snapshot、Code Index、Retrieval Run 和真实 Worktree HEAD/clean。冻结 MarkupSafe 评测集的真实本地模型 Recall@10 为 100%。
+
+M5 已完成实现：新任务在 M4 原子保存检索证据后进入 `analyzing`，固定 LangGraph 四节点图依次加载证据、分析需求、生成计划并保存结果。`qwen3:8b` 只通过 loopback Ollama 读取最多 10 条、总计最多 20,000 字符的公开代码证据；Structured Output 还必须通过 Pydantic 和 path/symbol/rank 确定性校验。成功后任务进入 `waiting_approval`，页面明确提示 M6 才能批准、修改或拒绝。
+
+M5 不使用 Checkpoint、Interrupt、工具循环或持久队列，不写仓库、不生成 Patch、不执行测试。服务在 `analyzing` 期间重启不能恢复当前模型调用；升级前的 `retrieved` 历史任务不会自动补排。关闭 `PLANNING_ENABLED` 后新任务继续以 M4 `retrieved` 为终态。
 
 ## 人工审批边界
 

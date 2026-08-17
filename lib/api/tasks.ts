@@ -7,6 +7,8 @@ export type TaskStatus =
   | "indexed"
   | "retrieving"
   | "retrieved"
+  | "analyzing"
+  | "waiting_approval"
   | "failed";
 
 export type TaskFailure = {
@@ -134,6 +136,63 @@ export type Retrieval = {
   results: RetrievalResult[];
 };
 
+export type EvidenceReference = {
+  description: string;
+  evidence_ranks: number[];
+};
+
+export type Planning = {
+  task_id: string;
+  commit_sha: string;
+  run: {
+    id: string;
+    graph_version: string;
+    provider: string;
+    model: string;
+    analysis_prompt_version: string;
+    plan_prompt_version: string;
+    evidence_count: number;
+    evidence_truncated: boolean;
+    created_at: string;
+  };
+  analysis: {
+    summary: string;
+    acceptance_criteria: Array<EvidenceReference & { id: string }>;
+    constraints: EvidenceReference[];
+    assumptions: EvidenceReference[];
+    affected_areas: Array<{
+      path: string;
+      symbol: string | null;
+      reason: string;
+      evidence_ranks: number[];
+    }>;
+    risks: Array<{
+      description: string;
+      mitigation: string;
+      evidence_ranks: number[];
+    }>;
+  };
+  plan: {
+    version: number;
+    status: "proposed";
+    steps: Array<{
+      order: number;
+      title: string;
+      description: string;
+      paths: string[];
+      symbols: string[];
+      evidence_ranks: number[];
+    }>;
+    test_strategy: Array<{
+      description: string;
+      target_paths: string[];
+      evidence_ranks: number[];
+    }>;
+    risk_notes: string[];
+    created_at: string;
+  };
+};
+
 export type CreateTaskInput = {
   repository_url: string;
   issue: string;
@@ -247,4 +306,15 @@ export async function fetchRetrieval(
     { method: "GET", cache: "no-store", signal },
   );
   return parseResponse<Retrieval>(response);
+}
+
+export async function fetchPlanning(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<Planning> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/planning`,
+    { method: "GET", cache: "no-store", signal },
+  );
+  return parseResponse<Planning>(response);
 }

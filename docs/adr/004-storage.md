@@ -21,6 +21,8 @@ M3 新增 `code_indexes`、`code_files`、`code_symbols`、`code_imports` 规范
 
 M4 启用 `vector` 扩展并新增 `code_chunks`、`retrieval_runs`、`retrieval_results`。Chunk 保存 `TSVECTOR` 和固定 `vector(1024)`；Run 保存 Commit、Issue hash、Provider/模型、算法版本与候选计数；Result 保存三路 rank/score、RRF 和最终重排分数。小仓库使用 exact cosine scan，不建立 HNSW/IVFFlat；数据规模和延迟出现证据后再评估 ANN。
 
+M5 新增 `planning_runs`、`requirement_analyses`、`implementation_plans`。Run 对 Task 与 Retrieval Run 各自唯一，保存 Commit、Graph/Prompt/模型版本和 Evidence hash；Analysis 与 proposed v1 Plan 使用受限 JSONB 保存已验证结构。LangGraph Checkpoint 仍未引入，不能把这些业务产物当成 M6 的节点执行状态。
+
 ## Alternatives
 
 ### SQLite

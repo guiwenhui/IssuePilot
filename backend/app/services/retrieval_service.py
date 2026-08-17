@@ -72,6 +72,7 @@ class RetrievalStore(Protocol):
         provider_dimensions: int,
         candidate_limit: int,
         result_limit: int,
+        success_status: TaskStatus = TaskStatus.RETRIEVED,
     ) -> None:
         ...
 
@@ -95,6 +96,7 @@ class RetrievalService:
         chunk_limits: ChunkLimits,
         candidate_limit: int,
         result_limit: int,
+        success_status: TaskStatus = TaskStatus.RETRIEVED,
     ) -> None:
         self._store = store
         self._git = git_client
@@ -103,6 +105,7 @@ class RetrievalService:
         self._chunk_limits = chunk_limits
         self._candidate_limit = candidate_limit
         self._result_limit = result_limit
+        self._success_status = success_status
 
     async def retrieve_task(self, task_id: UUID) -> None:
         context = await self._store.load_context(task_id)
@@ -131,6 +134,7 @@ class RetrievalService:
                 self._provider.dimensions,
                 self._candidate_limit,
                 self._result_limit,
+                self._success_status,
             )
         except DatabaseUnavailableError:
             raise

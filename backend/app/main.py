@@ -1,7 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import FastAPI, Request, status
@@ -10,13 +11,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.planning_graph import build_planning_graph
 from app.api.routes.tasks import router as tasks_router
 from app.core.config import Settings, get_settings
 from app.db.session import session_factory
 from app.embeddings.ollama import OllamaEmbeddingProvider
+from app.llms.ollama import OllamaChatProvider
 from app.parsers.python_ast import ParserLimits
 from app.retrieval.chunker import ChunkLimits
+from app.schemas.task import TaskStatus
 from app.services.parser_client import ParserClient
+from app.services.planning_service import (
+    PlanningLimits,
+    PlanningNotReadyError,
+    PlanningService,
+)
+from app.services.planning_store import SqlPlanningStore
 from app.services.git_client import GitClient
 from app.services.code_index_service import CodeIndexNotReadyError
 from app.services.repository_service import (
@@ -34,6 +44,20 @@ from app.workers.repository_pipeline import RepositoryPipeline
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RepositoryRuntime:
+    git_client: GitClient
+    workspace: WorkspaceManager
+    parser_client: ParserClient
+    parser_limits: ParserLimits
+    embedding_provider: OllamaEmbeddingProvider
+    chunk_limits: ChunkLimits
+    llm_provider: OllamaChatProvider
+    planning_graph: object
+    planning_limits: PlanningLimits
+    queue: RepositoryQueue
 
 
 def error_response(
@@ -64,17 +88,51 @@ def validation_details(error: RequestValidationError) -> List[Dict[str, Any]]:
     return details
 
 
-def create_repository_runtime(
-    settings: Settings,
-) -> Tuple[
-    GitClient,
-    WorkspaceManager,
-    ParserClient,
-    ParserLimits,
-    OllamaEmbeddingProvider,
-    ChunkLimits,
-    RepositoryQueue,
-]:
+def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
+    git_client, workspace, parser_client, parser_limits = (
+        _workspace_and_parser(settings)
+    )
+    embedding_provider, chunk_limits = _retrieval_components(settings)
+    llm_provider, planning_graph, planning_limits = _planning_components(
+        settings
+    )
+    pipeline = _repository_pipeline(
+        settings,
+        git_client,
+        workspace,
+        parser_client,
+        parser_limits,
+        embedding_provider,
+        chunk_limits,
+        llm_provider,
+        planning_graph,
+        planning_limits,
+    )
+
+    async def process_repository(task_id: UUID) -> None:
+        async with session_factory() as session:
+            await pipeline.process(session, task_id)
+
+    queue = RepositoryQueue(
+        settings.clone_queue_capacity,
+        process_repository,
+        settings.repository_clone_enabled,
+    )
+    return RepositoryRuntime(
+        git_client,
+        workspace,
+        parser_client,
+        parser_limits,
+        embedding_provider,
+        chunk_limits,
+        llm_provider,
+        planning_graph,
+        planning_limits,
+        queue,
+    )
+
+
+def _workspace_and_parser(settings: Settings):
     workspace = WorkspaceManager(
         Path(settings.repository_workspace_root),
         WorkspaceLimits(
@@ -92,6 +150,10 @@ def create_repository_runtime(
         settings.max_python_total_bytes,
         settings.max_code_entities,
     )
+    return git_client, workspace, parser_client, parser_limits
+
+
+def _retrieval_components(settings: Settings):
     if settings.embedding_provider != "ollama":
         raise ValueError("M4 supports only the ollama embedding provider")
     embedding_provider = OllamaEmbeddingProvider(
@@ -108,6 +170,46 @@ def create_repository_runtime(
         settings.chunk_overlap_lines,
         settings.max_chunk_characters,
     )
+    return embedding_provider, chunk_limits
+
+
+def _planning_components(settings: Settings):
+    if not settings.planning_enabled:
+        provider = OllamaChatProvider(
+            "http://127.0.0.1:11434", "planning-disabled", 1, 1_024, 128, 1_024
+        )
+        return provider, build_planning_graph(), PlanningLimits(1, 100, 1_000)
+    if settings.llm_provider != "ollama":
+        raise ValueError("M5 supports only the ollama chat provider")
+    llm_provider = OllamaChatProvider(
+        settings.llm_base_url,
+        settings.llm_model,
+        settings.llm_timeout_seconds,
+        settings.llm_context_window,
+        settings.llm_max_output_tokens,
+        settings.llm_max_response_bytes,
+    )
+    planning_graph = build_planning_graph()
+    planning_limits = PlanningLimits(
+        settings.planning_evidence_limit,
+        settings.planning_max_snippet_characters,
+        settings.planning_max_evidence_characters,
+    )
+    return llm_provider, planning_graph, planning_limits
+
+
+def _repository_pipeline(
+    settings: Settings,
+    git_client: GitClient,
+    workspace: WorkspaceManager,
+    parser_client: ParserClient,
+    parser_limits: ParserLimits,
+    embedding_provider: OllamaEmbeddingProvider,
+    chunk_limits: ChunkLimits,
+    llm_provider: OllamaChatProvider,
+    planning_graph: object,
+    planning_limits: PlanningLimits,
+) -> RepositoryPipeline:
 
     def retrieval_service(session: AsyncSession) -> RetrievalService:
         return RetrievalService(
@@ -118,34 +220,31 @@ def create_repository_runtime(
             chunk_limits,
             settings.retrieval_candidate_limit,
             settings.retrieval_result_limit,
+            (
+                TaskStatus.ANALYZING
+                if settings.planning_enabled
+                else TaskStatus.RETRIEVED
+            ),
         )
 
-    pipeline = RepositoryPipeline(
+    def planning_service(session: AsyncSession) -> PlanningService:
+        return PlanningService(
+            SqlPlanningStore(session),
+            git_client,
+            workspace,
+            llm_provider,
+            planning_graph,
+            planning_limits,
+        )
+
+    return RepositoryPipeline(
         git_client,
         workspace,
         parser_client,
         parser_limits,
         settings.max_code_preview_entries,
         retrieval_service,
-    )
-
-    async def process_repository(task_id: UUID) -> None:
-        async with session_factory() as session:
-            await pipeline.process(session, task_id)
-
-    queue = RepositoryQueue(
-        settings.clone_queue_capacity,
-        process_repository,
-        settings.repository_clone_enabled,
-    )
-    return (
-        git_client,
-        workspace,
-        parser_client,
-        parser_limits,
-        embedding_provider,
-        chunk_limits,
-        queue,
+        planning_service if settings.planning_enabled else None,
     )
 
 
@@ -230,6 +329,17 @@ async def handle_retrieval_not_ready(
     )
 
 
+async def handle_planning_not_ready(
+    request: Request, error: PlanningNotReadyError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "PLANNING_NOT_READY",
+        "需求分析和实施计划尚未完成",
+    )
+
+
 async def handle_internal_error(request: Request, error: Exception) -> JSONResponse:
     logger.error(
         "Unhandled API error for %s %s",
@@ -262,33 +372,29 @@ def register_exception_handlers(application: FastAPI) -> None:
     application.add_exception_handler(
         RetrievalNotReadyError, handle_retrieval_not_ready
     )
+    application.add_exception_handler(
+        PlanningNotReadyError, handle_planning_not_ready
+    )
     application.add_exception_handler(Exception, handle_internal_error)
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    (
-        git_client,
-        workspace,
-        parser_client,
-        parser_limits,
-        embedding_provider,
-        chunk_limits,
-        queue,
-    ) = (
-        create_repository_runtime(settings)
-    )
+    runtime = create_repository_runtime(settings)
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
-    application.state.git_client = git_client
-    application.state.workspace = workspace
-    application.state.parser_client = parser_client
-    application.state.parser_limits = parser_limits
-    application.state.embedding_provider = embedding_provider
-    application.state.chunk_limits = chunk_limits
+    application.state.git_client = runtime.git_client
+    application.state.workspace = runtime.workspace
+    application.state.parser_client = runtime.parser_client
+    application.state.parser_limits = runtime.parser_limits
+    application.state.embedding_provider = runtime.embedding_provider
+    application.state.chunk_limits = runtime.chunk_limits
+    application.state.llm_provider = runtime.llm_provider
+    application.state.planning_graph = runtime.planning_graph
+    application.state.planning_limits = runtime.planning_limits
     application.state.retrieval_candidate_limit = settings.retrieval_candidate_limit
     application.state.retrieval_result_limit = settings.retrieval_result_limit
     application.state.max_code_preview_entries = settings.max_code_preview_entries
-    application.state.repository_queue = queue
+    application.state.repository_queue = runtime.queue
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],

@@ -9,12 +9,14 @@ from app.schemas.task import TaskStatus
 from app.services.code_index_service import CodeIndexService
 from app.services.git_client import GitClient
 from app.services.parser_client import ParserClient
+from app.services.planning_service import PlanningService
 from app.services.repository_service import RepositoryService
 from app.services.retrieval_service import RetrievalService
 from app.services.workspace import WorkspaceManager
 
 
 RetrievalServiceFactory = Callable[[AsyncSession], RetrievalService]
+PlanningServiceFactory = Callable[[AsyncSession], PlanningService]
 
 
 class RepositoryPipeline:
@@ -26,6 +28,7 @@ class RepositoryPipeline:
         parser_limits: ParserLimits,
         max_preview_entries: int,
         retrieval_service_factory: RetrievalServiceFactory,
+        planning_service_factory: PlanningServiceFactory | None = None,
     ) -> None:
         self._git = git_client
         self._workspace = workspace
@@ -33,6 +36,7 @@ class RepositoryPipeline:
         self._limits = parser_limits
         self._max_preview_entries = max_preview_entries
         self._retrieval_service_factory = retrieval_service_factory
+        self._planning_service_factory = planning_service_factory
 
     async def process(self, session: AsyncSession, task_id: UUID) -> None:
         repository_service = RepositoryService(
@@ -52,3 +56,11 @@ class RepositoryPipeline:
         if task is not None and task.status == TaskStatus.RETRIEVING:
             retrieval_service = self._retrieval_service_factory(session)
             await retrieval_service.retrieve_task(task_id)
+        task = await session.get(Task, task_id)
+        if (
+            self._planning_service_factory is not None
+            and task is not None
+            and task.status == TaskStatus.ANALYZING
+        ):
+            planning_service = self._planning_service_factory(session)
+            await planning_service.plan_task(task_id)

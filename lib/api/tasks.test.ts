@@ -5,6 +5,7 @@ import {
   ApiError,
   createTask,
   fetchCodeStructure,
+  fetchPlanning,
   fetchRetrieval,
   fetchRepositoryTree,
   fetchTask,
@@ -165,6 +166,55 @@ test("fetchRetrieval requests the dedicated M4 endpoint", async () => {
   assert.equal(
     new URL(capturedRequest?.url ?? "").pathname,
     `/api/v1/tasks/${task.task_id}/retrieval`,
+  );
+  assert.equal(capturedRequest?.cache, "no-store");
+});
+
+
+test("fetchPlanning requests the dedicated M5 endpoint", async () => {
+  let capturedRequest: Request | undefined;
+  const planning = {
+    task_id: task.task_id,
+    commit_sha: "a".repeat(40),
+    run: {
+      id: "b".repeat(36),
+      graph_version: "planning-graph-v1",
+      provider: "ollama",
+      model: "qwen3:8b",
+      analysis_prompt_version: "analysis-v1",
+      plan_prompt_version: "plan-v1",
+      evidence_count: 2,
+      evidence_truncated: false,
+      created_at: "2026-08-17T10:00:00Z",
+    },
+    analysis: {
+      summary: "Handle nullable escaping.",
+      acceptance_criteria: [],
+      constraints: [],
+      assumptions: [],
+      affected_areas: [],
+      risks: [],
+    },
+    plan: {
+      version: 1,
+      status: "proposed",
+      steps: [],
+      test_strategy: [],
+      risk_notes: [],
+      created_at: "2026-08-17T10:00:00Z",
+    },
+  };
+  globalThis.fetch = async (input, init) => {
+    capturedRequest = new Request(input, init);
+    return Response.json(planning);
+  };
+
+  const result = await fetchPlanning(task.task_id);
+
+  assert.deepEqual(result, planning);
+  assert.equal(
+    new URL(capturedRequest?.url ?? "").pathname,
+    `/api/v1/tasks/${task.task_id}/planning`,
   );
   assert.equal(capturedRequest?.cache, "no-store");
 });

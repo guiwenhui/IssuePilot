@@ -11,6 +11,8 @@ IssuePilot 需要确定性的检索、分析、计划、审批、Patch、测试�
 
 从 M5 起使用 LangGraph 显式状态图。每个节点具有明确输入、输出、允许修改的状态字段与下一步。角色优先实现为节点，不为展示“多 Agent”而创建自由对话角色。
 
+M5 实际图固定为 `retrieve_code → analyze_requirement → create_plan → persist_plan`，使用 runtime context 注入 Store 与 Provider，不配置 Checkpointer，不开放工具或循环。`waiting_approval` 在 M5 只是已持久化业务终态，不伪装为 LangGraph Interrupt。
+
 M6 使用 Checkpoint 持久化安全节点状态，并使用 Interrupt 在计划批准处暂停。M8 加入按错误类型区分的有限重试和人工升级。
 
 ## Alternatives

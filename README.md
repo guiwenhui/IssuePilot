@@ -1,8 +1,8 @@
 # IssuePilot
 
-IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0、M1、M2、M3、M4 已通过产品验收。用户可提交公开 GitHub 仓库和 Issue，后台在受控目录完成浅克隆、Python AST 解析和三路混合检索，页面展示 PostgreSQL 中的业务状态、固定 Commit、真实文件树、结构化代码和排名证据。
+IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0–M5 已通过产品验收。用户可提交公开 GitHub 仓库和 Issue，后台在受控目录完成浅克隆、Python AST 解析、三路混合检索和本地结构化规划，页面展示固定 Commit、真实代码证据、需求分析和待审批实施计划。
 
-M4 使用 PostgreSQL FTS、M3 Symbol 和本机 Ollama Embedding 召回代码，经 RRF 与确定性规则重排；不调用 OpenAI、不启动 Agent，也不导入、执行或修改仓库代码。后续能力及边界见 [`docs/product-scope.md`](docs/product-scope.md)。
+M5 使用无 Checkpoint 的固定 LangGraph 四节点图，将 M4 Top 10 证据交给本机 Ollama `qwen3:8b`；输出经严格 Schema 和证据引用校验后原子保存。代码证据不会离开本机，也不会导入、执行或修改仓库代码。审批与恢复仍属于 M6。
 
 ## 当前架构
 
@@ -17,10 +17,12 @@ M4 使用 PostgreSQL FTS、M3 Symbol 和本机 Ollama Embedding 召回代码，�
 - PostgreSQL 代码索引：保存与固定 Commit 绑定的文件、符号、Import 和测试结构。
 - 本机 Ollama：使用 `qwen3-embedding:0.6b` 生成 1024 维文档与查询向量。
 - Retrieval Service：生成安全 Chunk，执行 FTS/Symbol/Vector exact scan、RRF 和规则重排。
+- LangGraph Planning：固定执行 retrieve/analyze/plan/persist，无工具调用、循环或 Checkpoint。
+- 本机 Chat Model：`qwen3:8b` 以 Structured Output 生成需求分析和实施计划。
 
 ## 本地运行
 
-以下命令均从项目根目录开始。需要 Node.js、Python 3.9+、Git CLI、Docker 与 Ollama。
+以下命令均从项目根目录开始。需要 Node.js、Python 3.11+（本项目已验证 3.13）、Git CLI、Docker 与 Ollama。
 
 1. 安装前端依赖：
 
@@ -51,11 +53,12 @@ M4 使用 PostgreSQL FTS、M3 Symbol 和本机 Ollama Embedding 召回代码，�
 
    容器已存在时使用 `docker start issuepilot-postgres`。旧 `postgres:16` 镜像不包含 M4 所需的 `vector` 扩展；迁移前应先备份，并改用 `pgvector/pgvector:pg16` 或单独的 pgvector 测试容器。Docker Compose 属于 M10。
 
-4. 启动 Ollama 并下载本地 Embedding 模型：
+4. 启动 Ollama 并下载本地 Embedding 与规划模型：
 
    ```bash
    ollama serve
    ollama pull qwen3-embedding:0.6b
+   ollama pull qwen3:8b
    ```
 
 5. 复制环境变量并执行 migration：
@@ -95,9 +98,10 @@ M4 使用 PostgreSQL FTS、M3 Symbol 和本机 Ollama Embedding 召回代码，�
 - `GET /api/v1/tasks/{task_id}/repository/tree`：在核对工作区与 Commit 后返回仓库快照。
 - `GET /api/v1/tasks/{task_id}/code/structure`：在核对索引、Snapshot 与真实工作区后返回受限 Python 结构预览。
 - `GET /api/v1/tasks/{task_id}/retrieval`：在再次核对 Commit 与真实工作区后返回查询、模型、候选数、代码片段、通道排名和融合分数。
+- `GET /api/v1/tasks/{task_id}/planning`：核对 Snapshot、Index、Retrieval Run 与真实工作区后返回本地模型生成的结构化分析和 v1 待审批计划。
 - 错误使用统一 `{ "error": { "code", "message", "details" } }` 结构；输入错误为 `422`，任务不存在为 `404`，快照未就绪/不一致为 `409`，数据库不可用为 `503`。
 
-M4 继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。默认工作区为 `/tmp/issuepilot-workspaces`，克隆、AST、Chunk 和 Embedding 资源限制见 [`.env.example`](.env.example)。仓库内容不会被导入、执行或初始化 Submodule/LFS；只有 tracked 普通 `.py` 文件进入 Parser 和本机 Embedding。
+系统继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。默认工作区为 `/tmp/issuepilot-workspaces`，所有本地模型 URL 必须是无凭据的 loopback HTTP。仓库内容不会被导入、执行或初始化 Submodule/LFS；M5 仅把受限检索证据发送给同机 Ollama。
 
 ## 验证命令
 
@@ -110,6 +114,7 @@ npm run build
 cd backend
 ../.venv/bin/python -m pytest --cov=app --cov-report=term-missing
 RUN_OLLAMA_LIVE=1 ../.venv/bin/python -m pytest tests/test_retrieval_evaluation.py -m ollama -s
+RUN_OLLAMA_LIVE=1 ../.venv/bin/python -m pytest tests/test_planning_evaluation.py -m ollama -s
 ../.venv/bin/alembic -c alembic.ini current
 ```
 
