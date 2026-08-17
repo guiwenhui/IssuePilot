@@ -13,7 +13,7 @@ M4 采用三路召回：PostgreSQL `TSVECTOR` 关键词、M3 AST Symbol、pgvect
 
 Embedding 通过 Provider 协议隔离，默认实现是本机 Ollama `qwen3-embedding:0.6b`。请求显式指定 1024 维和 `truncate=false`；文档批次最多 32，响应必须模型、数量、维度一致且全为有限数。M4 不调用 OpenAI API。
 
-Chunk 优先采用 AST Symbol Source Span；超过 160 行时按 120 行窗口、20 行 overlap 切分，未被 Symbol 覆盖的模块级代码也进入受限 Chunk。每条保存 path、Symbol、起止行、内容 hash、FTS 和向量。小型仓库使用 exact scan，不建立近似索引。
+Chunk 优先采用 AST Symbol Source Span；超过 160 行时按 120 行窗口、20 行 overlap 切分，未被 Symbol 覆盖的模块级代码也进入受限 Chunk。`python-symbol-v2` 在 Embedding 前按 path、起止行和内容 hash 确定性去重父级窗口与子级 Symbol，冲突时保留更具体的方法/函数 Symbol；v1 不包含该去重规则。每条保存 path、Symbol、起止行、内容 hash、FTS 和向量。小型仓库使用 exact scan，不建立近似索引。
 
 运行和结果持久化到 `retrieval_runs/retrieval_results`，保存固定 Commit、Issue hash、Provider/模型、Chunker/Fusion/Reranker 版本、候选数、每路 rank/score 与最终分数。读取前同时核对 Repository Snapshot、Code Index、Retrieval Run、Worktree HEAD 和 clean。
 
@@ -40,6 +40,7 @@ Qdrant、Milvus、Weaviate、HNSW 或 IVFFlat 更适合大规模数据，但当�
 - 代码不需要发送给 OpenAI；本地开发新增 Ollama 和约 639 MB 模型依赖。
 - PostgreSQL 镜像必须提供 pgvector；普通 `postgres:16` 需安全迁移或使用独立测试容器。
 - 三路排名和算法版本可解释、可刷新恢复并可回归测试。
+- 重叠窗口不会重复生成 Embedding 或违反 `code_chunks` 唯一约束；约束等逻辑错误进入任务级检索失败，不冒充数据库连接故障。
 - 冻结 MarkupSafe 五问题集的真实本地模型 Recall@10 为 100%，但样本小；M9 仍需扩大评测与对照实验。
 - 进程内 Queue 的重启丢失限制没有改变；历史 `indexed` 不自动补排，持久恢复留给后续里程碑。
 - M4 不生成需求分析、计划、Patch，不执行测试，也不 Commit、Push 或创建 PR。

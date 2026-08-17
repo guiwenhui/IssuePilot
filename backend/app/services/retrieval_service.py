@@ -86,6 +86,10 @@ class RetrievalNotReadyError(Exception):
     pass
 
 
+class RetrievalPersistenceError(Exception):
+    pass
+
+
 class RetrievalService:
     def __init__(
         self,
@@ -222,6 +226,7 @@ def _known_retrieval_errors() -> tuple:
     return (
         EmbeddingUnavailableError,
         EmbeddingInvalidResponseError,
+        RetrievalPersistenceError,
         RetrievalChunkLimitError,
         UnsafeChunkSourceError,
         WorkspaceInconsistentError,

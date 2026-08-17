@@ -4,7 +4,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from uuid import UUID
 
 from sqlalchemy import delete, func, literal_column, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import (
+    DisconnectionError,
+    InterfaceError,
+    OperationalError,
+    SQLAlchemyError,
+    TimeoutError as SQLAlchemyTimeoutError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.code_index import CodeFile, CodeIndex, CodeSymbol
@@ -31,7 +37,10 @@ from app.schemas.retrieval import (
     RetrievalVersions,
 )
 from app.services.repository_service import WorkspaceInconsistentError
-from app.services.retrieval_service import RetrievalContext
+from app.services.retrieval_service import (
+    RetrievalContext,
+    RetrievalPersistenceError,
+)
 from app.services.task_service import DatabaseUnavailableError, TaskNotFoundError
 
 
@@ -128,9 +137,18 @@ class SqlRetrievalStore:
             context.task.failure_code = None
             context.task.failure_message = None
             await self._session.commit()
-        except (SQLAlchemyError, OSError) as error:
+        except (
+            DisconnectionError,
+            InterfaceError,
+            OperationalError,
+            SQLAlchemyTimeoutError,
+            OSError,
+        ) as error:
             await self._session.rollback()
             raise DatabaseUnavailableError() from error
+        except SQLAlchemyError as error:
+            await self._session.rollback()
+            raise RetrievalPersistenceError() from error
         except Exception:
             await self._session.rollback()
             raise

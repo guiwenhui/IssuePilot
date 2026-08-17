@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Collection, Optional
 from uuid import UUID
 
+from sqlalchemy import update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,3 +66,31 @@ class TaskService:
             await self._session.rollback()
             raise DatabaseUnavailableError() from error
         return task
+
+    async def set_failure_if_status_in(
+        self,
+        task_id: UUID,
+        expected_statuses: Collection[TaskStatus],
+        failure_code: str,
+        failure_message: str,
+    ) -> bool:
+        try:
+            result = await self._session.execute(
+                update(Task)
+                .where(
+                    Task.id == task_id,
+                    Task.status.in_(tuple(expected_statuses)),
+                )
+                .values(
+                    status=TaskStatus.FAILED,
+                    failure_code=failure_code,
+                    failure_message=failure_message,
+                )
+                .returning(Task.id)
+            )
+            updated = result.scalar_one_or_none() is not None
+            await self._session.commit()
+        except (SQLAlchemyError, OSError) as error:
+            await self._session.rollback()
+            raise DatabaseUnavailableError() from error
+        return updated

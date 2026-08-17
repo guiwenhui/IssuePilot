@@ -165,6 +165,7 @@ def test_planning_response_has_stable_nested_contract() -> None:
             analysis_prompt_version="analysis-v1",
             plan_prompt_version="plan-v1",
             evidence_count=2,
+            evidence_sha256="e" * 64,
             evidence_truncated=False,
             created_at=now,
         ),

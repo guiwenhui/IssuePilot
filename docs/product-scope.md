@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 状态：M0–M5 已验收
+- 状态：M0–M6 已验收
 - 日期：2026-08-17
 - 性质：产品范围基线，并同步标注各里程碑的真实落地状态
 
@@ -88,13 +88,17 @@ M2 不初始化 Submodule、不下载 LFS、不解析或执行仓库代码，也
 
 M3 已通过产品验收：新任务在 Repository Snapshot 落库后进入 `indexing`，隔离 Python 子进程使用标准库 AST 提取 tracked `.py` 文件、类、函数、方法、Import 和测试结构，结果以 `indexed` 终态绑定固定 Commit 保存到 PostgreSQL。单文件语法错误保留为警告；超时、超限、无 Python 文件或工作区不一致保存任务级失败证据。
 
-M4 已通过产品验收：新任务在 AST 成功后直接进入 `retrieving`，按 Symbol 和模块边界生成带 path/行号/hash 的 Chunk；PostgreSQL FTS、M3 Symbol 和 pgvector 1024 维 exact cosine scan 各召回最多 50 条，经 RRF 和确定性规则重排后保存前 10 条证据并进入 `retrieved`。Embedding 默认由本机 Ollama `qwen3-embedding:0.6b` 生成，不调用 OpenAI API。
+M4 已通过产品验收：新任务在 AST 成功后直接进入 `retrieving`，按 Symbol 和模块边界生成带 path/行号/hash 的 Chunk；`python-symbol-v2` 在父级窗口与子级 Symbol 完全重合时于 Embedding 前确定性去重并保留更具体 Symbol。PostgreSQL FTS、M3 Symbol 和 pgvector 1024 维 exact cosine scan 各召回最多 50 条，经 RRF 和确定性规则重排后保存前 10 条证据并进入 `retrieved`。Embedding 默认由本机 Ollama `qwen3-embedding:0.6b` 生成，不调用 OpenAI API。检索逻辑失败和未分类 Worker 异常必须收敛任务状态，不能永久显示假 `retrieving`。
 
 M4 不引入 LangGraph、LLM 需求分析、计划、Patch 或测试执行；升级前已经处于 `indexed` 的 M3 历史任务不会自动补排。读取结果时仍同时核对 Repository Snapshot、Code Index、Retrieval Run 和真实 Worktree HEAD/clean。冻结 MarkupSafe 评测集的真实本地模型 Recall@10 为 100%。
 
-M5 已完成实现：新任务在 M4 原子保存检索证据后进入 `analyzing`，固定 LangGraph 四节点图依次加载证据、分析需求、生成计划并保存结果。`qwen3:8b` 只通过 loopback Ollama 读取最多 10 条、总计最多 20,000 字符的公开代码证据；Structured Output 还必须通过 Pydantic 和 path/symbol/rank 确定性校验。成功后任务进入 `waiting_approval`，页面明确提示 M6 才能批准、修改或拒绝。
+M5 已通过产品验收：新任务在 M4 原子保存检索证据后进入 `analyzing`，固定 LangGraph 四节点图依次加载证据、分析需求、生成计划并保存结果。`qwen3:8b` 只通过 loopback Ollama 读取最多 10 条、总计最多 20,000 字符的公开代码证据；Structured Output 还必须通过 Pydantic 和 path/symbol/rank 确定性校验。成功后任务进入 `waiting_approval`，页面明确提示 M6 才能批准、修改或拒绝。
 
 M5 不使用 Checkpoint、Interrupt、工具循环或持久队列，不写仓库、不生成 Patch、不执行测试。服务在 `analyzing` 期间重启不能恢复当前模型调用；升级前的 `retrieved` 历史任务不会自动补排。关闭 `PLANNING_ENABLED` 后新任务继续以 M4 `retrieved` 为终态。
+
+M6 已通过产品验收：PostgreSQL Checkpointer 在 `persist_plan` 后保存图状态并通过 Interrupt 暂停。用户决定先以幂等键和计划版本写入 `planning_decisions`，再由单消费者执行；approve/reject 成为业务终态，request_changes 使用同一 Commit、Analysis 和 Evidence 生成 vN+1。服务启动会重排 pending decision 和可恢复 analyzing task。
+
+M6 恢复不会只信任 Checkpoint 或业务表。系统必须同时核对 Graph/Prompt、Planning Run、Evidence hash、Snapshot/Index/Retrieval Commit、Worktree HEAD 和 clean；不一致进入 `recovery_blocked`。M5 已保存但无 Checkpoint 的计划可在首次决定时安全 bootstrap。M6 仍不写文件、不生成 Patch、不运行目标仓库测试，也不 Commit、Push 或创建 PR。
 
 ## 人工审批边界
 

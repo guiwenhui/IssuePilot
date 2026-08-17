@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是调用链及其逐步落地计划。M1–M5 已验收。审批恢复和 Patch 仍在后续里程碑引入。
+以下是调用链及其逐步落地计划。M1–M6 已验收。Patch 仍在后续里程碑引入。
 
 ## 1. 请求链
 
@@ -138,6 +138,7 @@ sequenceDiagram
     Service->>DB: 读取 Task/Snapshot/Index/File/Symbol
     Service->>Git: 核对 Snapshot SHA、Index SHA、HEAD、clean、tracked hash
     Service->>Service: Symbol/模块边界 Chunk + 资源限制
+    Service->>Service: 按 path/行号/content hash 去重，保留更具体 Symbol
     Service->>Ollama: POST /api/embed（文档批次 + Issue 查询）
     Ollama-->>Service: 1024 维有限数向量
     Service->>DB: 保存 Chunk + FTS + vector(1024)
@@ -149,7 +150,7 @@ sequenceDiagram
     Service-->>Web: Commit、模型、path、symbol、行号、snippet、通道排名与分数
 ```
 
-M4 新任务在 `retrieving` 继续轮询，在 `retrieved/failed` 停止；历史 `cloned/indexed` 保持终态且不自动补排。正常输出必须带固定 Commit、文件路径、符号、行号、代码片段和每路排名，不能只返回模型总结。Embedding 不可用、响应非法或资源超限会保存稳定失败码；已形成的 Tree 和 Code Structure 仍可读取。
+M4 新任务在 `retrieving` 继续轮询，在 `retrieved/failed` 停止；历史 `cloned/indexed` 保持终态且不自动补排。正常输出必须带固定 Commit、文件路径、符号、行号、代码片段和每路排名，不能只返回模型总结。Embedding 不可用、响应非法、资源超限或检索持久化逻辑错误会保存稳定失败码；数据库连接错误保持基础设施错误语义。Repository Worker 通过独立 Session 和单条活跃状态条件更新收敛失败任务，避免页面轮询一个已经退出的任务且不覆盖并发形成的终态；数据库可用性错误保留 `DATABASE_UNAVAILABLE`，其余未分类异常使用 `REPOSITORY_PIPELINE_FAILED`。已形成的 Tree 和 Code Structure 仍可读取。
 
 ## 5. 本地规划链
 
@@ -185,11 +186,49 @@ sequenceDiagram
 
 M5 图固定为 `START → retrieve_code → analyze_requirement → create_plan → persist_plan → END`，不包含 Checkpoint、Interrupt、工具、循环或文件写入。模型失败、输出非法、证据越界或工作区不一致会保存稳定 failure code；数据库不可用仍返回基础设施错误。`waiting_approval` 只是业务状态和页面提示。
 
-M6 才在 Planning 之后加入持久 Checkpoint 与 Interrupt，接收批准、修改或拒绝并在恢复前同时核对 Checkpoint、PostgreSQL 与真实 Worktree。M7 再引入 Worktree、Patch 和白名单测试，M8 才加入 Reviewer 与有限修复环。
+## 6. 人工审批与恢复链
 
-## 6. 失败链
+首次落地：M6。
 
-基本错误契约从 M1 开始；跨节点 Checkpoint 恢复在 M6 落地；有限修复循环在 M8 落地。
+```mermaid
+sequenceDiagram
+    actor User as 用户
+    participant Web as Next.js Approval UI
+    participant API as Decision API
+    participant DB as PostgreSQL Business Tables
+    participant Queue as Planning Queue
+    participant CP as PostgreSQL Checkpointer
+    participant Graph as LangGraph v2
+    participant Repo as Git Worktree
+    participant Model as 本机 qwen3:8b
+
+    User->>Web: approve / request_changes / reject
+    Web->>API: POST decision + plan_version + idempotency_key
+    API->>DB: 锁 Task 与 Plan；保存 pending intent
+    API-->>Web: 202 decision_pending
+    API->>Queue: enqueue decision_id
+    Queue->>CP: 读取暂停 Checkpoint
+    Queue->>DB: 核对 Run/Plan/Evidence hash
+    Queue->>Repo: 核对 HEAD 与 clean
+    alt approve 或 reject
+        Queue->>Graph: Command(resume=decision)
+        Graph->>DB: 原子应用决定
+    else request_changes
+        Queue->>Graph: Command(resume=feedback)
+        Graph->>Model: 原 Issue + Analysis + Plan + 同一 Evidence
+        Model-->>Graph: Structured Plan draft
+        Graph->>DB: 保存 vN+1 并 supersede vN
+        Graph->>CP: 再次 Interrupt
+    else 任一事实不一致
+        Queue->>DB: decision failed + recovery_blocked
+    end
+```
+
+相同幂等键的串行或并发重试只产生一个决定。业务表保存用户可查询的决定和计划版本；Checkpoint 只保存节点执行位置。M5 计划没有 Checkpoint 时，首次决定会在完成全部一致性检查后 bootstrap 到审批暂停点。批准只得到 `approved`，不会自动进入 Patch。
+
+## 7. 失败链
+
+基本错误契约从 M1 开始；跨节点 Checkpoint 恢复已在 M6 落地；有限修复循环在 M8 落地。
 
 ```mermaid
 flowchart TD

@@ -1,0 +1,82 @@
+.approval-controls,
+.decision-history {
+  margin: 0 0 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.88);
+}
+
+.approval-controls h3,
+.decision-history h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.approval-controls > p {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.approval-actions button {
+  min-height: 40px;
+  padding: 9px 15px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--green);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.approval-actions button.danger {
+  border-color: #9c3f34;
+  background: #9c3f34;
+}
+
+.approval-comment .approval-actions button:last-child {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.approval-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.approval-comment {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.approval-comment label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.approval-comment textarea {
+  min-height: 110px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffefb;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+}
+
+.decision-history {
+  margin-top: 14px;
+}

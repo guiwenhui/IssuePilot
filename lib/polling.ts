@@ -20,6 +20,9 @@ export function shouldContinueTaskPolling(status: string): boolean {
     "indexed",
     "retrieved",
     "waiting_approval",
+    "approved",
+    "rejected",
+    "recovery_blocked",
     "failed",
   ].includes(status);
 }

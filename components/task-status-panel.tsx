@@ -50,13 +50,31 @@ function TaskSummary({ task, lastSyncedAt }: { task: Task; lastSyncedAt?: Date }
   const isRetrieved = task.status === "retrieved";
   const isAnalyzing = task.status === "analyzing";
   const isWaitingApproval = task.status === "waiting_approval";
+  const isDecisionPending = task.status === "decision_pending";
+  const isRevising = task.status === "revising";
+  const isApproved = task.status === "approved";
+  const isRejected = task.status === "rejected";
+  const isRecoveryBlocked = task.status === "recovery_blocked";
+  const isFailed = task.status === "failed";
   return (
     <>
       <div className="task-status-heading">
         <div>
           <p className="card-label">PERSISTED TASK</p>
           <h1>
-            {isWaitingApproval
+            {isApproved
+              ? "实施计划已批准"
+              : isRejected
+                ? "实施计划已拒绝"
+                : isRecoveryBlocked
+                  ? "恢复校验未通过"
+                  : isRevising
+                    ? "正在按反馈修订计划"
+                    : isDecisionPending
+                      ? "审批决定正在处理"
+                      : isFailed
+                        ? "任务处理失败"
+                        : isWaitingApproval
               ? "实施计划等待人工审批"
               : isRetrieved
               ? "相关代码证据已准备好"
@@ -67,15 +85,33 @@ function TaskSummary({ task, lastSyncedAt }: { task: Task; lastSyncedAt?: Date }
                 : "任务处理中"}
           </h1>
         </div>
-        <span className={`status-pill ${task.status === "failed" ? "danger" : "success"}`}>
+        <span
+          className={`status-pill ${
+            task.status === "failed" || isRejected || isRecoveryBlocked
+              ? "danger"
+              : "success"
+          }`}
+        >
           <span className="dot" />
           {task.status}
         </span>
       </div>
       <TaskDetails task={task} />
       <p className="polling-note">
-        {isWaitingApproval
-          ? "本地模型已根据固定 Commit 的检索证据生成结构化计划；M6 才会提供审批操作。"
+        {isApproved
+          ? "人工已批准当前计划；M6 到此结束，尚未修改任何仓库代码。"
+          : isRejected
+            ? "人工已拒绝当前计划；任务停止，不会进入代码修改。"
+            : isRecoveryBlocked
+              ? "Checkpoint、PostgreSQL 或真实工作区不一致；已停止自动恢复，需要人工检查。"
+              : isRevising
+                ? "本地 qwen3:8b 正在使用原始代码证据和人工反馈生成新版计划。"
+                : isDecisionPending
+                  ? "审批请求已持久化，后台正在核对 Checkpoint、业务状态和真实工作区。"
+                  : isFailed
+                    ? "任务已停止；下方保留最后成功证据和可审查的失败原因。"
+                    : isWaitingApproval
+          ? "请审批当前计划；批准只确认计划，M6 不会修改代码。"
           : isRetrieved
           ? "三路检索结果已绑定固定 Commit，并保存每个通道的排名证据。"
           : isIndexed
@@ -112,6 +148,7 @@ export default function TaskStatusPanel({ taskId }: TaskStatusPanelProps) {
     planning,
     error,
     lastSyncedAt,
+    refresh,
   } = useTaskStatus(taskId);
   if (!task && !error) {
     return <p className="loading-state">正在读取 PostgreSQL 中的任务状态…</p>;
@@ -123,7 +160,14 @@ export default function TaskStatusPanel({ taskId }: TaskStatusPanelProps) {
       {repositoryTree ? <RepositoryTree tree={repositoryTree} /> : null}
       {codeStructure ? <CodeStructure structure={codeStructure} /> : null}
       {retrieval ? <RetrievalResults retrieval={retrieval} /> : null}
-      {planning ? <PlanningResults planning={planning} /> : null}
+      {planning && task ? (
+        <PlanningResults
+          planning={planning}
+          taskId={taskId}
+          taskStatus={task.status}
+          onDecisionSubmitted={refresh}
+        />
+      ) : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}
     </div>
   );

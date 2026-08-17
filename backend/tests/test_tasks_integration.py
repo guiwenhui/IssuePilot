@@ -5,8 +5,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
 
 from app.db.session import session_factory
-from app.main import create_app
+from app.main import create_app, mark_repository_task_failed
 from app.models.task import Task
+from app.schemas.task import TaskStatus
 
 
 @pytest.fixture(autouse=True)
@@ -66,3 +67,68 @@ async def test_invalid_request_does_not_insert_task(
     async with session_factory() as session:
         count = await session.scalar(select(func.count()).select_from(Task))
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_repository_failure_handler_converges_active_task() -> None:
+    async with session_factory() as session:
+        task = Task(
+            repository_url="https://github.com/example/project.git",
+            issue_text="Fix retrieval",
+            status=TaskStatus.RETRIEVING,
+        )
+        session.add(task)
+        await session.commit()
+        task_id = task.id
+
+    await mark_repository_task_failed(task_id)
+
+    async with session_factory() as session:
+        task = await session.get(Task, task_id)
+        assert task is not None
+        assert task.status == TaskStatus.FAILED
+        assert task.failure_code == "REPOSITORY_PIPELINE_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_repository_failure_handler_preserves_terminal_task() -> None:
+    async with session_factory() as session:
+        task = Task(
+            repository_url="https://github.com/example/project.git",
+            issue_text="Review plan",
+            status=TaskStatus.WAITING_APPROVAL,
+        )
+        session.add(task)
+        await session.commit()
+        task_id = task.id
+
+    await mark_repository_task_failed(task_id)
+
+    async with session_factory() as session:
+        task = await session.get(Task, task_id)
+        assert task is not None
+        assert task.status == TaskStatus.WAITING_APPROVAL
+        assert task.failure_code is None
+
+
+@pytest.mark.asyncio
+async def test_repository_failure_handler_preserves_database_error_code() -> None:
+    from app.services.task_service import DatabaseUnavailableError
+
+    async with session_factory() as session:
+        task = Task(
+            repository_url="https://github.com/example/project.git",
+            issue_text="Fix retrieval",
+            status=TaskStatus.RETRIEVING,
+        )
+        session.add(task)
+        await session.commit()
+        task_id = task.id
+
+    await mark_repository_task_failed(task_id, DatabaseUnavailableError())
+
+    async with session_factory() as session:
+        task = await session.get(Task, task_id)
+        assert task is not None
+        assert task.status == TaskStatus.FAILED
+        assert task.failure_code == "DATABASE_UNAVAILABLE"

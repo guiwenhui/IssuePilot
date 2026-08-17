@@ -12,7 +12,11 @@ from app.models.task import Task
 from app.retrieval.chunker import ChunkLimits, CodeChunkDraft
 from app.schemas.task import TaskStatus
 from app.services.git_client import TrackedEntry
-from app.services.retrieval_service import RetrievalContext, RetrievalService
+from app.services.retrieval_service import (
+    RetrievalContext,
+    RetrievalPersistenceError,
+    RetrievalService,
+)
 from app.services.workspace import WorkspaceLimits, WorkspaceManager
 
 
@@ -56,8 +60,13 @@ class FakeProvider:
 
 
 class FakeStore:
-    def __init__(self, context: RetrievalContext) -> None:
+    def __init__(
+        self,
+        context: RetrievalContext,
+        persist_error: Optional[Exception] = None,
+    ) -> None:
         self.context = context
+        self.persist_error = persist_error
         self.persisted: List[CodeChunkDraft] = []
 
     async def load_context(self, task_id: object) -> RetrievalContext:
@@ -87,6 +96,8 @@ class FakeStore:
         result_limit: int,
         success_status: TaskStatus,
     ) -> None:
+        if self.persist_error is not None:
+            raise self.persist_error
         assert len(chunks) == len(embeddings)
         assert len(query_embedding) == provider_dimensions
         assert candidate_limit == 50
@@ -238,6 +249,29 @@ async def test_retrieve_task_maps_embedding_outage_to_failure(tmp_path: Path) ->
     assert context.task.status == TaskStatus.FAILED
     assert context.task.failure_code == "EMBEDDING_UNAVAILABLE"
     assert context.task.failure_message == "本地 Embedding 服务暂时不可用"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_task_maps_persistence_error_to_stable_failure(
+    tmp_path: Path,
+) -> None:
+    context, workspace = make_context(tmp_path)
+    store = FakeStore(context, RetrievalPersistenceError("duplicate chunk"))
+    service = RetrievalService(
+        store,
+        FakeGit(),
+        workspace,
+        FakeProvider(),
+        ChunkLimits(100, 120, 160, 20, 16_384),
+        50,
+        10,
+    )
+
+    await service.retrieve_task(context.task.id)
+
+    assert context.task.status == TaskStatus.FAILED
+    assert context.task.failure_code == "RETRIEVAL_FAILED"
+    assert context.task.failure_message == "代码检索失败"
 
 
 @pytest.mark.asyncio

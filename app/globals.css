@@ -190,7 +190,7 @@ h1 {
 
 .progress-track span {
   display: block;
-  width: 60%;
+  width: 70%;
   height: 100%;
   border-radius: inherit;
   background: var(--green);
@@ -238,6 +238,11 @@ h1 {
 
 .done .state {
   color: var(--green);
+  font-weight: 750;
+}
+
+.current .state {
+  color: #85671c;
   font-weight: 750;
 }
 

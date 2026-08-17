@@ -9,6 +9,7 @@ import {
   fetchRetrieval,
   fetchRepositoryTree,
   fetchTask,
+  submitPlanningDecision,
 } from "./tasks.ts";
 
 
@@ -184,6 +185,7 @@ test("fetchPlanning requests the dedicated M5 endpoint", async () => {
       analysis_prompt_version: "analysis-v1",
       plan_prompt_version: "plan-v1",
       evidence_count: 2,
+      evidence_sha256: "c".repeat(64),
       evidence_truncated: false,
       created_at: "2026-08-17T10:00:00Z",
     },
@@ -198,11 +200,16 @@ test("fetchPlanning requests the dedicated M5 endpoint", async () => {
     plan: {
       version: 1,
       status: "proposed",
+      plan_id: "11111111-1111-4111-8111-111111111111",
+      supersedes_plan_id: null,
+      revision_feedback: null,
       steps: [],
       test_strategy: [],
       risk_notes: [],
       created_at: "2026-08-17T10:00:00Z",
+      decided_at: null,
     },
+    decisions: [],
   };
   globalThis.fetch = async (input, init) => {
     capturedRequest = new Request(input, init);
@@ -217,6 +224,39 @@ test("fetchPlanning requests the dedicated M5 endpoint", async () => {
     `/api/v1/tasks/${task.task_id}/planning`,
   );
   assert.equal(capturedRequest?.cache, "no-store");
+});
+
+test("submitPlanningDecision posts the M6 versioned idempotent contract", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = async (input, init) => {
+    request = new Request(input, init);
+    return Response.json({
+      decision_id: "22222222-2222-4222-8222-222222222222",
+      task_id: task.task_id,
+      action: "approve",
+      status: "pending",
+      plan_version: 1,
+      task_status: "decision_pending",
+      comment: null,
+      created_at: "2026-08-17T00:00:00Z",
+      applied_at: null,
+    }, { status: 202 });
+  };
+
+  await submitPlanningDecision(task.task_id, {
+    action: "approve",
+    expected_plan_version: 1,
+    idempotency_key: "11111111-1111-4111-8111-111111111111",
+    comment: null,
+  });
+
+  assert.equal(request?.method, "POST");
+  assert.deepEqual(await request?.json(), {
+    action: "approve",
+    expected_plan_version: 1,
+    idempotency_key: "11111111-1111-4111-8111-111111111111",
+    comment: null,
+  });
 });
 
 

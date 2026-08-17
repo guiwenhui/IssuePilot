@@ -1,6 +1,7 @@
 from app.models.code_index import CodeFile, CodeImport, CodeIndex, CodeSymbol
 from app.models.planning import (
     ImplementationPlan,
+    PlanningDecision,
     PlanningRun,
     RequirementAnalysis,
 )
@@ -15,6 +16,7 @@ __all__ = [
     "CodeSymbol",
     "CodeChunk",
     "ImplementationPlan",
+    "PlanningDecision",
     "PlanningRun",
     "RepositorySnapshot",
     "RequirementAnalysis",

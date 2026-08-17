@@ -1,6 +1,6 @@
 # IssuePilot 术语表
 
-本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1–M5 已实现能力和后续目标能力。
+本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1–M6 已实现能力和后续目标能力。
 
 | 术语 | 初学者解释 | 在 IssuePilot 中的含义 |
 |---|---|---|
@@ -23,10 +23,12 @@
 | Submodule | Git 仓库中指向另一个仓库特定 Commit 的条目。 | M2 只把它标记为 `submodule`，不会递归初始化或访问其远程地址。 |
 | 符号链接 | 文件系统中指向另一路径的特殊条目。 | M2 展示其类型，但计量与枚举不跟随链接到工作区外部。 |
 | 状态机 | 把任务可能处于的状态和合法转换画清楚的规则。 | 防止前端或 Agent 随意跳过审批，将任务直接标为完成。 |
-| LangGraph | 用节点、边和共享状态描述 Agent 工作流的框架。 | M5 已用固定四节点图编排检索、分析和规划；M6 才加入审批与恢复。 |
-| Checkpoint | 在安全位置持久化一次工作流状态，类似游戏存档，但不保存模型完整思考过程。 | M6 用于服务中断后读取最后成功节点和状态继续执行。 |
-| Interrupt | 工作流主动暂停并等待外部输入的机制。 | M6 在应用 Patch 前等待用户批准、修改或拒绝计划。 |
-| 幂等性 | 同一个操作重复执行一次或多次，最终效果仍与执行一次相同。 | 恢复或重试前要避免重复创建任务、重复应用 Patch 等副作用。 |
+| LangGraph | 用节点、边和共享状态描述 Agent 工作流的框架。 | M6 v2 图在计划保存后暂停，并按人工决定显式路由。 |
+| Checkpoint | 在安全位置持久化一次工作流状态，类似游戏存档，但不保存模型完整思考过程。 | M6 使用 PostgreSQL 专用 schema 保存节点状态；它不是业务状态表。 |
+| Interrupt | 工作流主动暂停并等待外部输入的机制。 | M6 在计划保存后暂停，直到收到批准、修改或拒绝。 |
+| Command | 把外部输入交回已暂停工作流的恢复消息。 | M6 用决定 ID、动作和反馈恢复同一 task thread。 |
+| 幂等性 | 同一个操作重复执行一次或多次，最终效果仍与执行一次相同。 | M6 的 `(task_id, idempotency_key)` 唯一；并发双击只保存一个决定。 |
+| Pending Intent | 已经持久化、但后台副作用尚未完成的用户意图。 | M6 先保存 pending decision 再入内存队列，重启后可重新排队。 |
 | Worktree | Git 提供的额外工作目录，可让同一仓库的变更与原目录隔离。 | M7 在临时 Worktree 中应用 Patch 和测试，不改用户原仓库。 |
 | Patch | 描述代码变更的文本。 | IssuePilot 只生成并应用本地 Patch，不 Push 或创建真实 PR。 |
 | Unified Diff | 常见 Patch 格式，用 `+`、`-` 和上下文行表示文件改动。 | 页面用于展示待审查的精确代码差异。 |
@@ -36,7 +38,7 @@
 | 代码索引快照 | 与某个 Commit 和解析器版本绑定的结构化代码产物。 | M3 的 `code_indexes` 记录 Commit、Python/Parser 版本和数量，子表保存文件、符号与 Import。 |
 | 文件级解析警告 | 单个文件无法按当前 Python 语法或编码解析，但不抹掉其他成功结果。 | M3 保存 `syntax_error/read_error` 的受限摘要；至少一个文件成功时任务仍可 `indexed`。 |
 | indexed | 结构化代码索引已完成的业务状态。 | M3 终态；只证明 AST 产物可核对，不表示已完成 M4 检索或 Issue 分析。 |
-| Chunk | 带固定来源边界的可检索代码片段。 | M4 优先按 AST Symbol 起止行切分，超长 Symbol 使用重叠窗口；保存 path、行号和内容 hash。 |
+| Chunk | 带固定来源边界的可检索代码片段。 | M4 的 `python-symbol-v2` 优先按 AST Symbol 起止行切分，超长 Symbol 使用重叠窗口；相同 path/行号/content hash 的父子窗口确定性去重并保留更具体 Symbol。 |
 | Embedding | 把文本或代码转换成一组数字，使语义相近内容在向量空间里更接近。 | M4 默认用本机 `qwen3-embedding:0.6b` 生成 1024 维向量，不调用 OpenAI。 |
 | 混合检索 | 同时使用多种互补信号召回结果。 | M4 组合 PostgreSQL FTS、AST Symbol 和 pgvector 余弦相似度。 |
 | 向量检索 | 根据 Embedding 距离查找语义相近内容。 | M4 对小仓库使用 exact cosine scan，与关键词和符号检索组合。 |
@@ -44,14 +46,19 @@
 | Reranker | 对第一轮召回结果做更精细的重新排序。 | M4 使用确定性规则，根据多通道、Symbol、path 和测试意图加小幅 bonus；尚未使用 LLM。 |
 | Recall@K | 正确结果中有多少出现在检索返回的前 K 项；越高表示遗漏越少。 | M4/M9 衡量相关文件召回能力，例如预期 4 个文件中前 10 项找到了 3 个，Recall@10 为 75%。 |
 | pgvector | PostgreSQL 的向量扩展，让业务数据和向量索引可放在同一数据库中。 | M4 引入；M1 只使用 PostgreSQL 的普通业务表。 |
-| retrieving | M4 正在生成 Chunk/Embedding 并执行混合检索的活跃状态。 | 浏览器继续轮询；失败会保存 Embedding、限制或一致性 failure code。 |
+| retrieving | M4 正在生成 Chunk/Embedding 并执行混合检索的真实活跃状态。 | 浏览器继续轮询；检索失败或未分类 Worker 异常应收敛为 `failed`，不能在执行已退出后永久保留该状态。 |
 | retrieved | M4 检索证据已原子保存的业务终态。 | 浏览器停止轮询并读取 Retrieval API；不表示已经完成 M5 需求分析。 |
 | Ollama | 在本机运行模型并提供 HTTP API 的运行时。 | M4 通过 loopback `/api/embed` 生成向量；M5 通过 `/api/chat` 调用 `qwen3:8b`，证据不离开本机。 |
 | Structured Output | 让模型按指定 JSON Schema 返回字段，而不是自由文本。 | M5 为分析和计划分别提供 Pydantic Schema，模型结果还要经过业务 Validator。 |
 | Prompt Injection | 不可信文本试图让模型忽略系统规则或执行隐藏指令。 | M5 把 Issue、代码和注释都当作数据；模型无工具权限，且输出必须通过确定性证据校验。 |
 | Evidence Rank | 一条检索证据在 M4 Top K 中的稳定序号。 | M5 的验收标准、影响范围、步骤和测试策略必须引用真实 rank，并与 path/symbol 对得上。 |
 | analyzing | M5 正在运行本地需求分析和规划的活跃状态。 | 浏览器继续轮询；服务重启后的持久恢复要到 M6 才实现。 |
-| waiting_approval | M5 计划已保存、等待人工审查的业务状态。 | 页面停止轮询并展示 proposed v1，但 M5 没有批准、修改或拒绝 API。 |
+| waiting_approval | 当前 proposed 计划等待人工决定的业务状态。 | M6 页面停止轮询并展示批准、要求修改和拒绝按钮。 |
+| decision_pending | 审批意图已保存、后台尚在处理。 | 页面继续轮询；重启后由 PostgreSQL pending intent 重排。 |
+| revising | 本机模型正在按反馈生成计划新版本。 | 只修改 Plan，原 Issue、Analysis、Commit 与 Evidence 不变。 |
+| approved | 人工已确认当前计划。 | M6 终态；不表示代码已修改，也不会自动进入 M7。 |
+| rejected | 人工已拒绝当前计划。 | M6 终态；停止后续实现。 |
+| recovery_blocked | 恢复所需事实不一致，系统拒绝猜测下一节点。 | Checkpoint、业务表、Evidence 或 Worktree 任一不匹配时进入。 |
 | RQ | 基于 Redis 的 Python 后台任务队列，负责排队和由 Worker 消费任务。 | M2 仍未引入；观察到真实重启丢失、多实例或排队需求后再评估。 |
 | 质量 Gate | 只有满足测试、审查和边界条件才能进入下一阶段的门禁。 | M8 防止“模型说完成了”被当成真实完成。 |
 | ADR | Architecture Decision Record，记录某项架构选择的背景、决定、替代方案和后果。 | M0 用 ADR 保存关键取舍，方便以后知道“为什么当时这样选”。 |
@@ -60,6 +67,7 @@
 
 - **轮询与 SSE**：轮询是浏览器反复问；SSE 是服务器持续推送。M1 先选轮询。
 - **Checkpoint 与数据库备份**：Checkpoint 保存一次工作流执行状态；数据库备份保护整库数据，目的不同。
+- **Checkpoint 与业务状态**：Checkpoint 回答“图执行到哪”；tasks/plans/decisions 回答“用户看到的业务事实是什么”。恢复必须同时核对。
 - **Memory 与 Checkpoint**：Memory 常指模型需要使用的历史信息；Checkpoint 主要服务于确定性的暂停和恢复。
 - **RAG 与 Agent**：RAG 负责找上下文；Agent 工作流负责决定以什么顺序分析、审批、调用工具和验证结果。
 - **Redis 与 RQ**：Redis 是数据/消息基础设施；RQ 才提供任务入队和 Worker 消费语义。

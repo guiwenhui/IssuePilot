@@ -78,3 +78,11 @@ def test_task_response_exposes_persisted_clone_failure() -> None:
     assert response.status == TaskStatus.FAILED
     assert response.failure is not None
     assert response.failure.code == "REPOSITORY_UNAVAILABLE"
+
+
+def test_task_status_includes_m6_approval_states() -> None:
+    assert TaskStatus.DECISION_PENDING == "decision_pending"
+    assert TaskStatus.REVISING == "revising"
+    assert TaskStatus.APPROVED == "approved"
+    assert TaskStatus.REJECTED == "rejected"
+    assert TaskStatus.RECOVERY_BLOCKED == "recovery_blocked"

@@ -6,6 +6,7 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 TaskProcessor = Callable[[UUID], Awaitable[None]]
+FailureHandler = Callable[[UUID, Exception], Awaitable[None]]
 
 
 class CloneQueueFullError(Exception):
@@ -18,10 +19,12 @@ class RepositoryQueue:
         capacity: int,
         processor: TaskProcessor,
         enabled: bool,
+        failure_handler: Optional[FailureHandler] = None,
     ) -> None:
         self.enabled = enabled
         self._queue: asyncio.Queue[Optional[UUID]] = asyncio.Queue(capacity)
         self._processor = processor
+        self._failure_handler = failure_handler
         self._worker: Optional[asyncio.Task[None]] = None
 
     async def start(self) -> None:
@@ -55,7 +58,18 @@ class RepositoryQueue:
                 if task_id is None:
                     return
                 await self._processor(task_id)
-            except Exception:
+            except Exception as error:
                 logger.exception("Repository worker failed for task %s", task_id)
+                await self._handle_failure(task_id, error)
             finally:
                 self._queue.task_done()
+
+    async def _handle_failure(self, task_id: UUID, error: Exception) -> None:
+        if self._failure_handler is None:
+            return
+        try:
+            await self._failure_handler(task_id, error)
+        except Exception:
+            logger.exception(
+                "Repository failure handler failed for task %s", task_id
+            )

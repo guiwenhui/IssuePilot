@@ -19,6 +19,11 @@ class TaskStatus(str, Enum):
     RETRIEVED = "retrieved"
     ANALYZING = "analyzing"
     WAITING_APPROVAL = "waiting_approval"
+    DECISION_PENDING = "decision_pending"
+    REVISING = "revising"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RECOVERY_BLOCKED = "recovery_blocked"
     FAILED = "failed"
 
 
