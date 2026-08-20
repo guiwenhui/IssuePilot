@@ -1,4 +1,5 @@
 from app.models.code_index import CodeFile, CodeImport, CodeIndex, CodeSymbol
+from app.models.implementation import ImplementationRun, PatchArtifact, TestRun
 from app.models.planning import (
     ImplementationPlan,
     PlanningDecision,
@@ -14,6 +15,9 @@ __all__ = [
     "CodeImport",
     "CodeIndex",
     "CodeSymbol",
+    "ImplementationRun",
+    "PatchArtifact",
+    "TestRun",
     "CodeChunk",
     "ImplementationPlan",
     "PlanningDecision",

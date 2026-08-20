@@ -109,6 +109,56 @@ class GitClient:
         )
         return result.return_code == 0 and not result.stdout
 
+    async def add_worktree(
+        self, repository: Path, destination: Path, commit_sha: str
+    ) -> None:
+        result = await self._run(
+            ["worktree", "add", "--detach", "--", str(destination), commit_sha],
+            cwd=repository,
+        )
+        if result.return_code != 0:
+            raise CloneFailedError("git worktree creation failed")
+
+    async def diff(self, repository: Path) -> str:
+        result = await self._run(
+            ["diff", "--no-ext-diff", "--no-renames", "--unified=3"],
+            cwd=repository,
+        )
+        if result.return_code != 0:
+            raise CloneFailedError("git diff failed")
+        return result.stdout
+
+    async def changed_paths(self, repository: Path) -> List[str]:
+        result = await self._run(
+            ["diff", "--name-only", "-z", "--no-renames"], cwd=repository
+        )
+        if result.return_code != 0:
+            raise CloneFailedError("git changed paths failed")
+        return [path for path in result.stdout.split("\0") if path]
+
+    async def untracked_paths(self, repository: Path) -> List[str]:
+        result = await self._run(
+            ["ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=repository,
+        )
+        if result.return_code != 0:
+            raise CloneFailedError("git untracked paths failed")
+        return [path for path in result.stdout.split("\0") if path]
+
+    async def diff_numstat(self, repository: Path) -> List[tuple[int, int, str]]:
+        result = await self._run(
+            ["diff", "--numstat", "--no-renames"], cwd=repository
+        )
+        if result.return_code != 0:
+            raise CloneFailedError("git diff statistics failed")
+        rows = []
+        for line in result.stdout.splitlines():
+            added, deleted, path = line.split("\t", maxsplit=2)
+            if not added.isdigit() or not deleted.isdigit():
+                raise CloneFailedError("binary diffs are not supported")
+            rows.append((int(added), int(deleted), path))
+        return rows
+
     async def _run(
         self, arguments: List[str], cwd: Optional[Path] = None
     ) -> GitCommandResult:

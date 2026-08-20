@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.services.code_index_service import CodeIndexService
+from app.services.implementation_service import ImplementationService
+from app.services.implementation_store import SqlImplementationStore
 from app.services.planning_service import PlanningService
 from app.services.planning_store import SqlPlanningStore
 from app.services.repository_service import RepositoryService
@@ -12,6 +14,7 @@ from app.services.retrieval_service import RetrievalService
 from app.services.retrieval_store import SqlRetrievalStore
 from app.services.task_service import TaskService
 from app.workers.repository_queue import RepositoryQueue
+from app.workers.implementation_queue import ImplementationQueue
 from app.workers.planning_queue import PlanningQueue
 
 
@@ -40,6 +43,15 @@ def get_planning_queue(request: Request) -> PlanningQueue:
 
 PlanningQueueDependency = Annotated[
     PlanningQueue, Depends(get_planning_queue)
+]
+
+
+def get_implementation_queue(request: Request) -> ImplementationQueue:
+    return request.app.state.implementation_queue
+
+
+ImplementationQueueDependency = Annotated[
+    ImplementationQueue, Depends(get_implementation_queue)
 ]
 
 
@@ -117,4 +129,26 @@ def get_planning_service(
 
 PlanningServiceDependency = Annotated[
     PlanningService, Depends(get_planning_service)
+]
+
+
+def get_implementation_service(
+    request: Request,
+    session: SessionDependency,
+) -> ImplementationService:
+    return ImplementationService(
+        SqlImplementationStore(session),
+        request.app.state.git_client,
+        request.app.state.workspace,
+        request.app.state.implementation_workspace,
+        request.app.state.patch_service,
+        request.app.state.implementation_llm_provider,
+        request.app.state.checkpoint_factory,
+        request.app.state.test_runner,
+        request.app.state.implementation_enabled,
+    )
+
+
+ImplementationServiceDependency = Annotated[
+    ImplementationService, Depends(get_implementation_service)
 ]

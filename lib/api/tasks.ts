@@ -14,6 +14,13 @@ export type TaskStatus =
   | "approved"
   | "rejected"
   | "recovery_blocked"
+  | "implementation_pending"
+  | "generating_patch"
+  | "patch_ready"
+  | "test_pending"
+  | "testing"
+  | "tested"
+  | "test_failed"
   | "failed";
 
 export type TaskFailure = {
@@ -237,6 +244,51 @@ export type PlanningDecision = {
   applied_at: string | null;
 };
 
+export type Implementation = {
+  run: {
+    implementation_run_id: string;
+    task_id: string;
+    plan_id: string;
+    plan_version: number;
+    base_commit: string;
+    status: string;
+    provider: string;
+    model: string;
+    failure_code: string | null;
+    failure_message: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  patch: {
+    sha256: string;
+    unified_diff: string;
+    files: Array<{
+      path: string;
+      original_sha256: string;
+      patched_sha256: string;
+    }>;
+    file_count: number;
+    insertions: number;
+    deletions: number;
+    created_at: string;
+  } | null;
+  test: {
+    test_run_id: string;
+    status: "pending" | "running" | "passed" | "failed";
+    command_argv: string[];
+    runner_image: string;
+    exit_code: number | null;
+    timed_out: boolean;
+    duration_ms: number | null;
+    stdout: string | null;
+    stderr: string | null;
+    output_sha256: string | null;
+    output_truncated: boolean;
+    created_at: string;
+    finished_at: string | null;
+  } | null;
+};
+
 export type CreateTaskInput = {
   repository_url: string;
   issue: string;
@@ -376,4 +428,53 @@ export async function submitPlanningDecision(
     },
   );
   return parseResponse<PlanningDecision>(response);
+}
+
+export async function fetchImplementation(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<Implementation> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/implementation`,
+    { method: "GET", cache: "no-store", signal },
+  );
+  return parseResponse<Implementation>(response);
+}
+
+export async function createImplementation(
+  taskId: string,
+  expectedPlanVersion: number,
+  idempotencyKey: string,
+): Promise<Implementation> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/implementation`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expected_plan_version: expectedPlanVersion,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+  return parseResponse<Implementation>(response);
+}
+
+export async function createImplementationTest(
+  taskId: string,
+  expectedPatchSha256: string,
+  idempotencyKey: string,
+): Promise<Implementation> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/tasks/${taskId}/implementation/tests`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expected_patch_sha256: expectedPatchSha256,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+  return parseResponse<Implementation>(response);
 }

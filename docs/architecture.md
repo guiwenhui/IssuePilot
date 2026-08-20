@@ -2,34 +2,38 @@
 
 ## 文档说明
 
-本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1–M6 已验收；本地规划、PostgreSQL Checkpoint、人工决定和安全恢复已经落地。Patch 仍是后续目标。
+本文同时描述当前实现和 M10 之前逐步形成的目标架构。M1–M7 已验收；本地规划、Checkpoint 化人工决定、隔离 Patch 和固定容器测试已经落地。
 
 ## 组件关系
 
 ```mermaid
 flowchart LR
-    User["用户"] --> Web["Next.js Web\nM1–M6"]
-    Web -->|"HTTP API；轮询与审批"| API["FastAPI API\nM1–M6"]
+    User["用户"] --> Web["Next.js Web\nM1–M7"]
+    Web -->|"HTTP API；轮询与两次副作用授权"| API["FastAPI API\nM1–M7"]
     API --> Service["Task Service\nM1"]
     Service --> DB["PostgreSQL\nM1；pgvector M4"]
     Service --> Worker["进程内单消费者队列\nM2；RQ 待评估"]
-    Worker --> Repo["隔离仓库工作区\nM2；Worktree M7"]
+    Worker --> Repo["来源仓库 + Implementation Worktree\nM2/M7"]
     Worker --> Parser["隔离 Python AST Parser\nM3"]
     Parser --> DB
     Worker --> Retrieval["Retrieval Service\nM4"]
     Retrieval --> Embed["本机 Ollama\nQwen3 Embedding"]
     Retrieval --> DB
-    Worker --> Graph["LangGraph Workflow\nM5–M6"]
-    Graph --> Model["本机 Ollama qwen3:8b\nM5–M6"]
+    Worker --> Graph["Planning + Implementation Graph\nM5–M7"]
+    Graph --> Model["本机 Ollama qwen3:8b\nM5–M7"]
     Graph --> DB
     Graph --> CP["PostgreSQL Checkpointer\nM6 专用 schema"]
     Graph --> Repo
-    Graph --> Approval["Interrupt / Command\nM6"]
+    Graph --> Approval["Interrupt / Command\nM6–M7"]
     Approval --> User
+    Graph --> Patch["File Replacement + Git Diff\nM7"]
+    Patch --> Repo
+    Repo --> Runner["固定 Docker pytest Runner\nM7"]
+    Runner --> DB
     API -.->|"实时事件可选升级：SSE"| Web
 ```
 
-虚线 SSE 是后续升级方向。当前通过非重叠轮询读取状态，终态再分别读取 Tree、Code Structure 和 Retrieval API。
+虚线 SSE 是后续升级方向。当前通过非重叠轮询读取任务；规划、Patch 与测试证据由独立 API 从 PostgreSQL 和真实工作区重新核对后返回。
 
 ## 组件职责
 
@@ -41,15 +45,18 @@ flowchart LR
 | PostgreSQL | 任务和事件持久化；后续保存 Checkpoint、索引元数据 | 执行工作流 | M1 |
 | pgvector | 保存代码向量并支持相似度召回 | 替代业务数据库或执行重排 | M4 |
 | Worker | 在请求之外执行克隆、索引和工作流 | 接收浏览器请求、绕过审批 | M2 |
-| Repo Workspace | 隔离克隆、文件读取；后续创建 Worktree、应用 Patch、执行测试 | 修改用户原仓库 | M2/M7 |
+| Repo Workspace | 隔离克隆与只读来源仓库；从固定 Commit 创建 Implementation Worktree | 修改来源仓库、猜测 Worktree 状态 | M2/M7 |
 | Python Parser | 只读解析 tracked Python 源码并输出结构 DTO | Import/执行仓库代码、访问数据库、改变任务状态 | M3 |
 | Code Index Service | 复核 Commit、调用 Parser、原子保存结构化索引 | 克隆仓库、做 M4 检索或调用模型 | M3 |
 | Embedding Provider | 将文档和 Issue 转为固定维度向量；默认调用本机 Ollama | 排名、改工作区、调用 OpenAI | M4 |
 | Retrieval Service | 安全 Chunk、三路召回、RRF、规则重排、原子保存检索证据 | 需求分析、生成计划、Patch 或执行代码 | M4 |
-| LangGraph | 固定规划节点、M6 Interrupt/Command 与计划修订路由 | 绕过工具权限、把模型输出当成人工决定 | M5/M6 |
+| LangGraph | 固定规划图；独立 Implementation 图、Interrupt/Command 与恢复路由 | 绕过授权、把模型文本当执行证据 | M5–M7 |
 | PostgreSQL Checkpointer | 保存 LangGraph 节点状态和暂停位置 | 充当任务/计划/决定业务查询表 | M6 |
 | Approval Store | 幂等决定、计划版本、审计历史和启动恢复查询 | 保存 Graph 内部 channel state | M6 |
-| 单一 LLM | 本机生成有证据引用的需求分析和实施计划 | 直接批准、写文件、执行命令或宣称测试通过 | M5 |
+| Implementation Store | 幂等保存 Run、Patch/Test 证据并控制合法状态转换 | 用 Checkpoint 替代业务事实、自动重试副作用 | M7 |
+| Patch Service | 校验结构化完整文件替换，原子写 Implementation Worktree，再由 Git 生成规范 Diff | 执行模型提供的 Shell/Diff、修改来源仓库 | M7 |
+| Docker Test Runner | 以固定镜像和 argv 执行无网络、非 root、资源受限 pytest | 安装仓库依赖、回退宿主机、接收任意命令 | M7 |
+| 本机 LLM | 本机生成有证据引用的分析、计划和受限 File Replacement | 直接批准、执行命令或宣称测试通过 | M5/M7 |
 
 ## 前后端边界
 
@@ -57,7 +64,7 @@ Next.js 负责界面渲染和用户交互。FastAPI 负责业务规则和 API �
 
 选择该边界是为了让业务规则只有一个权威实现，并直接复用 Python 的 AI 与代码分析生态。
 
-M1–M6 的具体边界如下：
+M1–M7 的具体边界如下：
 
 - `app/` 与 `components/` 包含 App Router 页面和 Client Components；浏览器直接请求 `NEXT_PUBLIC_API_BASE_URL` 指向的 FastAPI。
 - FastAPI 只允许配置中的前端 Origin，并只开放当前所需的 `GET`、`POST` 与 `Content-Type`。
@@ -71,6 +78,9 @@ M1–M6 的具体边界如下：
 - Retrieval Service 再次核对 Snapshot/Index/HEAD/clean；`python-symbol-v2` 对相同 path/行号/content hash 的父级与子级窗口在调用 Embedding 前确定性去重并保留更具体 Symbol，只把受限 Chunk 交给本机 Provider；Next.js 只显示后端排名 DTO。
 - Planning Service 再次核对 Snapshot/Index/Retrieval Run/HEAD/clean；LangGraph 只接收受限 Evidence DTO，结果通过 Schema 与引用校验后才落库。
 - Decision API 只接受计划版本、UUID 幂等键和三种动作；pending intent 提交后才入队。Graph 恢复再次核对业务表、Checkpoint 和 Worktree。
+- Implementation API 只接受批准计划版本或预期 Patch SHA256 以及 UUID 幂等键。生成 Patch 与运行测试是两个独立动作；前端不能用一次点击跨过 Patch 审查点。
+- Implementation Service 使用独立模型预算和 Checkpoint thread，只允许完整替换同时出现在实施步骤与测试目标中的既有 tracked `.py` 文件；Patch 必须由真实 Worktree 上的 Git 生成并在读取时复核 hash。
+- Test Runner 只接收服务端固定 argv 和受控 Worktree 路径；Docker 镜像不可用、缺少依赖或测试失败都保存真实证据，不执行在线安装或宿主机降级。
 
 ## 任务状态模型
 
@@ -92,13 +102,14 @@ revising
 approved
 rejected
 recovery_blocked
-patching
+implementation_pending
+generating_patch
+patch_ready
+test_pending
 testing
-reviewing
-completed
-retrying
+tested
+test_failed
 failed
-cancelled
 ```
 
 主成功路径为：
@@ -121,14 +132,18 @@ stateDiagram-v2
     decision_pending --> revising: 要求修改
     revising --> waiting_approval: vN+1 已保存
     decision_pending --> recovery_blocked: 一致性失败
-    approved --> patching: M7 以后另行授权
-    patching --> testing
-    testing --> reviewing
-    reviewing --> completed: 质量 Gate 通过
-    completed --> [*]
+    approved --> implementation_pending: 用户授权生成 Patch
+    implementation_pending --> generating_patch
+    generating_patch --> patch_ready: Git Diff 已保存
+    patch_ready --> test_pending: 用户携带 Patch hash 授权
+    test_pending --> testing
+    testing --> tested: pytest exit 0
+    testing --> test_failed: 非零退出/超时
+    tested --> [*]
+    test_failed --> [*]
 ```
 
-执行状态可因可恢复错误进入 `retrying`，再回到原阶段；超过重试上限进入 `failed`。用户主动终止进入 `cancelled`。后续里程碑再逐步启用尚未落地的转换。
+M7 尚不实现 `retrying/cancelled/reviewing/completed`。不可恢复错误进入 `failed`；事实不一致或无法证明副作用结果进入 `recovery_blocked`。有限重试、Reviewer 和质量 Gate 从 M8 起另行设计。
 
 M2 实际启用 `created → queued → cloning → cloned`，克隆或队列失败进入 `failed`。`cloned` 只表示隔离仓库已准备好，不表示整个 Issue 已完成。`tasks` 保存业务状态和失败证据，`repository_snapshots` 保存 canonical URL、Commit、计数和受限 Manifest。
 
@@ -140,6 +155,8 @@ M5 开关开启时，M4 检索事务直接进入 `analyzing`，固定图成功�
 
 M6 将 `waiting_approval` 变为可操作状态。提交决定后进入 `decision_pending`；修订时进入 `revising` 并在 vN+1 落库后回到 `waiting_approval`；批准和拒绝分别进入 `approved/rejected`。任一恢复事实不一致进入 `recovery_blocked`，不猜测节点。
 
+M7 只有收到新的幂等授权才把 `approved` 推进到 `implementation_pending/generating_patch`。Patch 持久化后停在 `patch_ready`；第二次授权形成 `test_pending/testing`，最终进入 `tested` 或 `test_failed`。`tested` 只证明固定 pytest 本次 exit code 为 0，不是 M8 质量 Gate，也不是 Commit/Push。运行中断且无法确定副作用结果时进入 `recovery_blocked`，不自动重跑测试。
+
 ## 数据所有权
 
 - PostgreSQL 是任务状态、事件与恢复元数据的权威来源。
@@ -148,17 +165,19 @@ M6 将 `waiting_approval` 变为可操作状态。提交决定后进入 `decisio
 - PostgreSQL `code_chunks/retrieval_runs/retrieval_results` 保存 M4 Chunk、模型/算法版本和通道排名；读取前同样复核 Snapshot、Index、Run 和真实工作区。
 - PostgreSQL `planning_runs/requirement_analyses/implementation_plans` 保存 M5 模型、Prompt、证据 hash、结构化分析和 proposed v1；读取前仍进行四方一致性核对。
 - PostgreSQL `planning_decisions` 和 Plan 版本关系保存 M6 用户意图与审计记录。
+- PostgreSQL `implementation_runs/patch_artifacts/test_runs` 保存 M7 请求、版本、Patch/Test hash、固定 argv、镜像、退出码、耗时和受限输出。
 - LangGraph Checkpoint 位于 `issuepilot_checkpoint` 专用 schema，只保存工作流节点状态，不能替代任务业务表。
+- Implementation Worktree 是 M7 已写文件的权威来源；数据库 Patch hash 和 Checkpoint 都必须与其重新生成的 Git Diff 一致。
 - 浏览器缓存不是权威状态；刷新页面后应从 FastAPI 重新读取。
 - Tree API 返回前核对 Snapshot、任务目录、HEAD SHA 和 clean 状态；不一致时返回 `409`。
 
 ## 后台执行演进
 
-M2 clone queue 仍是容量 20 的进程内单消费者，重启会丢失排队项。M6 decision queue 同样在进程内执行，但决定先写 PostgreSQL，启动会重排 pending intent，因此不会丢失已接收的审批。多实例共享和持久调度出现真实需求后再评估 Redis/RQ。
+M2 clone queue 仍是容量 20 的进程内单消费者，重启会丢失排队项。M6 decision queue 和 M7 implementation queue 同样在进程内执行，但用户 intent 先写 PostgreSQL，启动会重排安全的 pending 工作。M7 数据库写入统一按 Task → Implementation Run → Test Run 加锁。已进入 `running/testing` 却没有完成证据的测试会先清理并确认确定性容器名不存在，再进入 `recovery_blocked`，不会猜测或自动重跑。多实例共享和持久调度出现真实需求后再评估 Redis/RQ。
 
 ## 当前部署形态
 
-本地开发运行四个独立进程/服务：浏览器访问 `localhost:3000` 的 Next.js，FastAPI 监听 `localhost:8000` 并托管进程内 Worker，PostgreSQL 16 + pgvector 保存业务与向量，Ollama 在 loopback `11434` 同时提供 Embedding 和 `qwen3:8b` Chat。Git 工作区默认位于 `/tmp/issuepilot-workspaces`。统一编排和 Docker Compose 留到 M10。
+本地开发运行 Next.js、FastAPI/进程内 Worker、PostgreSQL 16 + pgvector、loopback Ollama，以及按需启动的固定 Docker pytest 容器。Git 来源仓库和 Implementation Worktree 默认位于服务端控制的 `/tmp/issuepilot-workspaces`。统一编排和 Docker Compose 留到 M10。
 
 ## 安全边界
 
@@ -169,10 +188,14 @@ M2 clone queue 仍是容量 20 的进程内单消费者，重启会丢失排队�
 - M4 默认只向 loopback Ollama 发送公开仓库 Chunk，不调用 OpenAI 或其他外部 Embedding API。
 - M5 Chat Provider 同样只接受 loopback HTTP，无工具和文件写权限；Issue、代码和注释均作为不可信数据，Prompt 之外再用确定性 Validator 拒绝伪造 path/symbol/rank、代码块和 Diff。
 - M6 修订继续使用相同 loopback Provider 和原 Evidence；批准/拒绝不调用模型。Checkpoint 与业务表不一致时停止为 `recovery_blocked`。
+- M7 实现模型仍只允许 loopback Ollama，但使用独立 32K context、16K 输出 token 和 256 KiB 响应上限；较大完整文件替换仍可能慢或失败，这是 M7 已知限制。
+- M7 只替换实施步骤路径与测试目标路径交集中的现存 tracked UTF-8 `.py` 文件；拒绝新建/删除/重命名、symlink、submodule、mode/binary 变化、路径穿越、原 hash 不符和资源超限。
+- Patch 必须由 Git 从隔离 Worktree 生成；模型不能直接提供可执行 Diff 或命令。Patch hash 不符时拒绝运行测试。
+- pytest 运行在固定镜像 digest、无网络、非 root、只读 Worktree mount、cap-drop/no-new-privileges 和 CPU/内存/PID/双层超时/输出限制下；只接受本机 Unix Docker socket。Runner 不安装依赖且绝不回退宿主机，完整输出在截断展示文本之外增量计算 hash。
 - 所有仓库操作在受控临时目录或 Worktree 中执行。
 - Git 通过参数数组运行，关闭凭据交互和系统/全局配置；浅克隆且不初始化 Submodule/LFS。
 - 每次克隆限制为 60 秒、100 MiB、5,000 tracked entries 和 25 层目录；这些值只能由服务端配置。
 - MVP 只允许 `pytest` 白名单命令族，不将用户输入拼接成 Shell 命令。
-- Patch 在人工批准后才能应用。
+- M6 计划批准后仍需单独授权生成 Patch；Patch 审查后还需再次授权测试。
 - MVP 不 Commit、不 Push、不创建真实 PR。
 - 失败后保存证据和最后成功节点，不通过无限重试扩大修改范围。

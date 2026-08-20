@@ -26,6 +26,17 @@ from app.parsers.python_ast import ParserLimits
 from app.retrieval.chunker import ChunkLimits
 from app.schemas.task import TaskStatus
 from app.services.parser_client import ParserClient
+from app.services.implementation_service import (
+    ImplementationDisabledError,
+)
+from app.services.implementation_store import (
+    ImplementationConflictError,
+    ImplementationNotReadyError,
+    SqlImplementationStore,
+)
+from app.services.implementation_workspace import ImplementationWorkspace
+from app.services.implementation_runtime import build_implementation_runtime
+from app.services.patch_service import PatchService
 from app.services.planning_service import (
     ApprovalWorkflowDisabledError,
     PlanningLimits,
@@ -50,6 +61,11 @@ from app.services.task_service import (
     TaskService,
 )
 from app.services.workspace import WorkspaceLimits, WorkspaceManager
+from app.services.test_runner import DockerTestRunner
+from app.workers.implementation_queue import (
+    ImplementationQueue,
+    ImplementationQueueFullError,
+)
 from app.workers.repository_queue import RepositoryQueue
 from app.workers.planning_queue import PlanningQueue, PlanningQueueFullError
 from app.workers.repository_pipeline import RepositoryPipeline
@@ -76,6 +92,7 @@ class RepositoryRuntime:
     embedding_provider: OllamaEmbeddingProvider
     chunk_limits: ChunkLimits
     llm_provider: OllamaChatProvider
+    implementation_llm_provider: OllamaChatProvider
     planning_graph: object
     planning_limits: PlanningLimits
     checkpoint_factory: PostgresCheckpointFactory
@@ -83,6 +100,11 @@ class RepositoryRuntime:
     planning_revision_limit: int
     queue: RepositoryQueue
     planning_queue: PlanningQueue
+    implementation_workspace: ImplementationWorkspace
+    patch_service: PatchService
+    test_runner: DockerTestRunner
+    implementation_enabled: bool
+    implementation_queue: ImplementationQueue
 
 
 def error_response(
@@ -115,6 +137,10 @@ def validation_details(error: RequestValidationError) -> List[Dict[str, Any]]:
 
 
 def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
+    if settings.implementation_enabled and not settings.approval_workflow_enabled:
+        raise ValueError("M7 implementation requires M6 approval workflow")
+    if settings.implementation_enabled and not settings.planning_enabled:
+        raise ValueError("M7 implementation requires M5 planning")
     git_client, workspace, parser_client, parser_limits = (
         _workspace_and_parser(settings)
     )
@@ -122,11 +148,12 @@ def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
     llm_provider, planning_graph, planning_limits = _planning_components(
         settings
     )
+    implementation_llm_provider = _implementation_provider(settings)
     checkpoint_factory = PostgresCheckpointFactory(
         settings.checkpoint_database_url or settings.database_url,
         settings.checkpoint_schema,
     )
-    pipeline = _repository_pipeline(
+    queue, planning_queue = _runtime_queues(
         settings,
         git_client,
         workspace,
@@ -139,46 +166,24 @@ def create_repository_runtime(settings: Settings) -> RepositoryRuntime:
         planning_limits,
         checkpoint_factory,
     )
-
-    async def process_repository(task_id: UUID) -> None:
-        async with session_factory() as session:
-            await pipeline.process(session, task_id)
-
-    async def handle_repository_failure(
-        task_id: UUID, error: Exception
-    ) -> None:
-        await mark_repository_task_failed(task_id, error)
-
-    queue = RepositoryQueue(
-        settings.clone_queue_capacity,
-        process_repository,
-        settings.repository_clone_enabled,
-        handle_repository_failure,
-    )
-    planning_queue = _planning_queue(
+    implementation_runtime = build_implementation_runtime(
         settings,
         git_client,
         workspace,
-        llm_provider,
-        planning_graph,
-        planning_limits,
+        implementation_llm_provider,
         checkpoint_factory,
+    )
+    implementation_workspace, patch_service, test_runner, implementation_queue = (
+        implementation_runtime
     )
     return RepositoryRuntime(
-        git_client,
-        workspace,
-        parser_client,
-        parser_limits,
-        embedding_provider,
-        chunk_limits,
-        llm_provider,
-        planning_graph,
-        planning_limits,
-        checkpoint_factory,
-        settings.approval_workflow_enabled,
-        settings.planning_revision_limit,
-        queue,
-        planning_queue,
+        git_client, workspace, parser_client, parser_limits,
+        embedding_provider, chunk_limits, llm_provider,
+        implementation_llm_provider, planning_graph, planning_limits,
+        checkpoint_factory, settings.approval_workflow_enabled,
+        settings.planning_revision_limit, queue, planning_queue,
+        implementation_workspace, patch_service, test_runner,
+        settings.implementation_enabled, implementation_queue,
     )
 
 
@@ -265,6 +270,72 @@ def _planning_components(settings: Settings):
         settings.planning_max_evidence_characters,
     )
     return llm_provider, planning_graph, planning_limits
+
+
+def _implementation_provider(settings: Settings) -> OllamaChatProvider:
+    if not settings.implementation_enabled:
+        return OllamaChatProvider(
+            "http://127.0.0.1:11434",
+            "implementation-disabled",
+            1,
+            1_024,
+            128,
+            1_024,
+        )
+    if settings.llm_provider != "ollama":
+        raise ValueError("M7 supports only the ollama chat provider")
+    return OllamaChatProvider(
+        settings.llm_base_url,
+        settings.llm_model,
+        settings.implementation_llm_timeout_seconds,
+        settings.implementation_llm_context_window,
+        settings.implementation_llm_max_output_tokens,
+        settings.implementation_llm_max_response_bytes,
+    )
+
+
+def _runtime_queues(
+    settings: Settings,
+    git_client: GitClient,
+    workspace: WorkspaceManager,
+    parser_client: ParserClient,
+    parser_limits: ParserLimits,
+    embedding_provider: OllamaEmbeddingProvider,
+    chunk_limits: ChunkLimits,
+    llm_provider: OllamaChatProvider,
+    planning_graph: object,
+    planning_limits: PlanningLimits,
+    checkpoint_factory: PostgresCheckpointFactory,
+) -> tuple[RepositoryQueue, PlanningQueue]:
+    pipeline = _repository_pipeline(
+        settings, git_client, workspace, parser_client, parser_limits,
+        embedding_provider, chunk_limits, llm_provider, planning_graph,
+        planning_limits, checkpoint_factory,
+    )
+    queue = _repository_queue(settings, pipeline)
+    planning_queue = _planning_queue(
+        settings, git_client, workspace, llm_provider, planning_graph,
+        planning_limits, checkpoint_factory,
+    )
+    return queue, planning_queue
+
+
+def _repository_queue(
+    settings: Settings, pipeline: RepositoryPipeline
+) -> RepositoryQueue:
+    async def process_repository(task_id: UUID) -> None:
+        async with session_factory() as session:
+            await pipeline.process(session, task_id)
+
+    async def handle_failure(task_id: UUID, error: Exception) -> None:
+        await mark_repository_task_failed(task_id, error)
+
+    return RepositoryQueue(
+        settings.clone_queue_capacity,
+        process_repository,
+        settings.repository_clone_enabled,
+        handle_failure,
+    )
 
 
 def _repository_pipeline(
@@ -361,9 +432,12 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         await application.state.checkpoint_factory.verify()
     await application.state.planning_queue.start()
     await _enqueue_pending_decisions(application)
+    await application.state.implementation_queue.start()
+    await _enqueue_pending_implementation(application)
     await application.state.repository_queue.start()
     yield
     await application.state.repository_queue.stop()
+    await application.state.implementation_queue.stop()
     await application.state.planning_queue.stop()
 
 
@@ -380,6 +454,17 @@ async def _enqueue_pending_decisions(application: FastAPI) -> None:
         application.state.planning_queue.enqueue(decision_id)
     for task_id in task_ids:
         application.state.planning_queue.enqueue_task(task_id)
+
+
+async def _enqueue_pending_implementation(application: FastAPI) -> None:
+    if not application.state.implementation_enabled:
+        return
+    async with session_factory() as session:
+        work = await SqlImplementationStore(session).pending_work(
+            application.state.implementation_queue_capacity
+        )
+    for kind, item_id in work:
+        application.state.implementation_queue.enqueue_work(kind, item_id)
 
 
 async def handle_validation_error(
@@ -509,6 +594,46 @@ async def handle_planning_queue_full(
     )
 
 
+async def handle_implementation_not_ready(
+    request: Request, error: ImplementationNotReadyError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "IMPLEMENTATION_NOT_READY",
+        "本地 Patch 尚未创建",
+    )
+
+
+async def handle_implementation_conflict(
+    request: Request, error: ImplementationConflictError
+) -> JSONResponse:
+    del request
+    return error_response(status.HTTP_409_CONFLICT, error.code, error.message)
+
+
+async def handle_implementation_disabled(
+    request: Request, error: ImplementationDisabledError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_409_CONFLICT,
+        "IMPLEMENTATION_DISABLED",
+        "本地 Patch 工作流未启用",
+    )
+
+
+async def handle_implementation_queue_full(
+    request: Request, error: ImplementationQueueFullError
+) -> JSONResponse:
+    del request, error
+    return error_response(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "IMPLEMENTATION_QUEUE_FULL",
+        "实现处理队列已满；请使用相同幂等键重试",
+    )
+
+
 async def handle_internal_error(request: Request, error: Exception) -> JSONResponse:
     logger.error(
         "Unhandled API error for %s %s",
@@ -559,6 +684,18 @@ def register_exception_handlers(application: FastAPI) -> None:
     application.add_exception_handler(
         PlanningQueueFullError, handle_planning_queue_full
     )
+    application.add_exception_handler(
+        ImplementationNotReadyError, handle_implementation_not_ready
+    )
+    application.add_exception_handler(
+        ImplementationConflictError, handle_implementation_conflict
+    )
+    application.add_exception_handler(
+        ImplementationDisabledError, handle_implementation_disabled
+    )
+    application.add_exception_handler(
+        ImplementationQueueFullError, handle_implementation_queue_full
+    )
     application.add_exception_handler(Exception, handle_internal_error)
 
 
@@ -573,6 +710,9 @@ def create_app() -> FastAPI:
     application.state.embedding_provider = runtime.embedding_provider
     application.state.chunk_limits = runtime.chunk_limits
     application.state.llm_provider = runtime.llm_provider
+    application.state.implementation_llm_provider = (
+        runtime.implementation_llm_provider
+    )
     application.state.planning_graph = runtime.planning_graph
     application.state.planning_limits = runtime.planning_limits
     application.state.checkpoint_factory = runtime.checkpoint_factory
@@ -588,6 +728,16 @@ def create_app() -> FastAPI:
     application.state.max_code_preview_entries = settings.max_code_preview_entries
     application.state.repository_queue = runtime.queue
     application.state.planning_queue = runtime.planning_queue
+    application.state.implementation_workspace = (
+        runtime.implementation_workspace
+    )
+    application.state.patch_service = runtime.patch_service
+    application.state.test_runner = runtime.test_runner
+    application.state.implementation_enabled = runtime.implementation_enabled
+    application.state.implementation_queue = runtime.implementation_queue
+    application.state.implementation_queue_capacity = (
+        settings.implementation_queue_capacity
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],

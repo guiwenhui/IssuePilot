@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 状态：M0–M6 已验收
+- 状态：M0–M7 已验收
 - 日期：2026-08-17
 - 性质：产品范围基线，并同步标注各里程碑的真实落地状态
 
@@ -99,6 +99,12 @@ M5 不使用 Checkpoint、Interrupt、工具循环或持久队列，不写仓库
 M6 已通过产品验收：PostgreSQL Checkpointer 在 `persist_plan` 后保存图状态并通过 Interrupt 暂停。用户决定先以幂等键和计划版本写入 `planning_decisions`，再由单消费者执行；approve/reject 成为业务终态，request_changes 使用同一 Commit、Analysis 和 Evidence 生成 vN+1。服务启动会重排 pending decision 和可恢复 analyzing task。
 
 M6 恢复不会只信任 Checkpoint 或业务表。系统必须同时核对 Graph/Prompt、Planning Run、Evidence hash、Snapshot/Index/Retrieval Commit、Worktree HEAD 和 clean；不一致进入 `recovery_blocked`。M5 已保存但无 Checkpoint 的计划可在首次决定时安全 bootstrap。M6 仍不写文件、不生成 Patch、不运行目标仓库测试，也不 Commit、Push 或创建 PR。
+
+M7 已于 2026-08-20 通过产品验收：批准计划之后仍需单独授权生成 Patch。系统从固定 Commit 创建独立 Implementation Worktree，只允许本机 `qwen3:8b` 对批准范围中的既有 tracked UTF-8 `.py` 文件给出结构化完整文件替换；后端验证原始 hash、路径、类型和资源上限，原子写入后由 Git 生成并保存规范 Unified Diff、Patch SHA256 与增删统计。来源仓库不产生修改。
+
+Patch 进入 `patch_ready` 后必须再次由用户携带预期 Patch SHA256 授权测试。固定 Docker Runner 只通过本机 Unix socket 执行服务端构造的 `python -m pytest -q -p no:cacheprovider`，使用无网络、非 root、只读仓库挂载以及 CPU、内存、PID、宿主机/容器内双层超时和输出限制。Runner 不安装目标仓库依赖，也不会在 Docker 不可用时回退宿主机；因此“缺少依赖导致 `test_failed`”是诚实的 M7 测试证据。
+
+M7 的 Implementation Graph 使用独立 Checkpoint thread，在 Patch 审查点 Interrupt。恢复时核对业务表、Checkpoint、来源仓库与 Implementation Worktree；无法证明已开始但未完成的副作用时进入 `recovery_blocked`。M7 不包含 Reviewer、自动修复、质量 Gate、任意命令、依赖安装、Commit、Push 或 PR，这些边界不得以测试便利为由绕过。
 
 ## 人工审批边界
 

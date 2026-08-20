@@ -2,7 +2,7 @@
 
 ## 文档说明
 
-以下是调用链及其逐步落地计划。M1–M6 已验收。Patch 仍在后续里程碑引入。
+以下是调用链及其逐步落地计划。M1–M7 已验收。Patch 生成与 pytest 执行均已落地为独立、可审计授权。
 
 ## 1. 请求链
 
@@ -226,9 +226,64 @@ sequenceDiagram
 
 相同幂等键的串行或并发重试只产生一个决定。业务表保存用户可查询的决定和计划版本；Checkpoint 只保存节点执行位置。M5 计划没有 Checkpoint 时，首次决定会在完成全部一致性检查后 bootstrap 到审批暂停点。批准只得到 `approved`，不会自动进入 Patch。
 
-## 7. 失败链
+## 7. 隔离 Patch 与白名单测试链
 
-基本错误契约从 M1 开始；跨节点 Checkpoint 恢复已在 M6 落地；有限修复循环在 M8 落地。
+首次落地：M7。
+
+```mermaid
+sequenceDiagram
+    actor User as 用户
+    participant Web as Next.js M7 UI
+    participant API as Implementation API
+    participant DB as PostgreSQL Business Tables
+    participant Queue as Implementation Queue
+    participant CP as PostgreSQL Checkpointer
+    participant Graph as Implementation Graph
+    participant Source as 来源仓库
+    participant WT as Implementation Worktree
+    participant Model as 本机 qwen3:8b
+    participant Runner as 固定 Docker pytest Runner
+
+    User->>Web: 授权生成 Patch
+    Web->>API: POST implementation + plan_version + idempotency_key
+    API->>DB: 锁定 approved Task/Plan，保存 pending Run
+    API-->>Web: 202 implementation_pending
+    API->>Queue: enqueue implementation_run_id
+    Queue->>CP: 读取独立 implementation thread
+    Queue->>DB: 核对 Plan/Run/Evidence/Commit
+    Queue->>Source: 核对 HEAD、clean、tracked hash
+    Graph->>WT: 从固定 Commit 创建隔离 Worktree
+    Graph->>Model: Issue + approved Plan + 允许文件及原 hash
+    Model-->>Graph: FileReplacement JSON
+    Graph->>WT: 路径/hash/类型/资源校验后原子替换
+    Graph->>WT: Git 生成并审计规范 Unified Diff
+    Graph->>DB: 保存 Patch、SHA256、manifest、统计
+    Graph->>CP: Interrupt(test approval)
+    Web->>API: GET implementation
+    API->>Source: 再核对来源 HEAD/clean
+    API->>WT: 重生成 Diff 并比对 Patch hash
+    API-->>Web: patch_ready + 精确 Diff
+    User->>Web: 查看 Patch 后授权 pytest
+    Web->>API: POST tests + expected_patch_sha256 + idempotency_key
+    API->>DB: 保存 pending Test Run
+    API->>Queue: enqueue test_run_id
+    Queue->>Graph: Command(resume=test approval)
+    Graph->>Runner: 固定 argv + 只读 Worktree
+    Runner-->>Graph: exit/timeout/duration/bounded output/hash
+    Graph->>DB: 原子保存 tested 或 test_failed
+    Web->>API: GET implementation
+    API-->>Web: 展示真实测试证据并停止轮询
+```
+
+两个 `POST` 都使用 UUID 幂等键，但授权对象不同：第一次确认可在隔离 Worktree 写文件，第二次确认可执行不可信仓库测试代码。第二次还必须携带页面所见 Patch 的 SHA256，Patch 被改变或 Worktree 无法复核时返回 `409`，不会执行测试。
+
+Implementation Graph 与 M6 Planning Graph 使用不同 Checkpoint thread。业务表回答“用户授权了什么、Patch/Test 证据是什么”，Checkpoint 回答“图暂停在哪个节点”，来源仓库与 Implementation Worktree 回答“磁盘上的真实代码是什么”。启动恢复同时核对 Graph/Prompt/provider/model/thread、业务状态/计划版本和精确 Worktree。合法的早期节点可幂等继续；数据库已保存 Patch 而 Checkpoint 仍停在 `apply_patch` 的提交窗口会先复核真实 Diff，再幂等推进至 Interrupt。其他节点错位直接 `recovery_blocked`。已经开始运行却没有完成证据的测试会先确认遗留容器被终止，再安全阻断，不自动重跑。
+
+Runner 只执行固定 `python -m pytest -q -p no:cacheprovider`，使用固定镜像 digest、无网络、非 root、只读 Worktree、cap-drop/no-new-privileges、CPU/内存/PID/宿主机与容器内双层超时/输出限制。它只接受本机 Unix Docker socket，不安装目标仓库依赖，不接受用户或模型命令，也不回退宿主机。缺依赖、pytest 失败和超时都作为 `test_failed` 证据保存；`tested` 也只表示 exit code 为 0，M8 才进行 Reviewer、质量 Gate 与有限修复。
+
+## 8. 失败链
+
+基本错误契约从 M1 开始；跨节点 Checkpoint 恢复已在 M6 落地，M7 增加 Patch/Test 副作用核对；有限修复循环仍在 M8 落地。
 
 ```mermaid
 flowchart TD

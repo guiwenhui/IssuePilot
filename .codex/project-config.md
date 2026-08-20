@@ -19,5 +19,6 @@
 - M4 implements bounded Python chunks, local Ollama embeddings, PostgreSQL FTS + AST Symbol + exact pgvector recall, RRF/rules ranking, the `retrieving/retrieved` states, and a read-only retrieval API only.
 - M5 implements a fixed four-node LangGraph, local Ollama `qwen3:8b` structured analysis/planning, evidence validation, the `analyzing/waiting_approval` states, and a read-only planning API only.
 - M6 implements PostgreSQL Checkpoint + Interrupt/Command, idempotent versioned decisions, plan-only local revision, triple-source recovery checks, approval UI, and `approved/rejected/recovery_blocked` terminal states only.
+- M7 implements an independently authorized Implementation Run, fixed-commit Git Worktree, structured full-file replacement, Git-generated Unified Diff, Patch review Interrupt, independently authorized fixed Docker pytest, persisted evidence, and triple-source recovery only. It must not add Reviewer/auto-fix/quality Gate, dependency installation, arbitrary commands, Commit, Push, or PR.
 - Later milestone capabilities must not be implemented early.
 - Development changes remain uncommitted until explicit user approval.
