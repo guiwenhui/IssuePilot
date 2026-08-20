@@ -1,6 +1,6 @@
 # IssuePilot 术语表
 
-本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1–M6 已实现能力和后续目标能力。
+本文面向第一次接触 AI 全栈与 Agent 工作流的读者。表内同时注明 M1–M7 已实现并通过产品验收的能力，以及后续目标能力。
 
 | 术语 | 初学者解释 | 在 IssuePilot 中的含义 |
 |---|---|---|
@@ -29,9 +29,14 @@
 | Command | 把外部输入交回已暂停工作流的恢复消息。 | M6 用决定 ID、动作和反馈恢复同一 task thread。 |
 | 幂等性 | 同一个操作重复执行一次或多次，最终效果仍与执行一次相同。 | M6 的 `(task_id, idempotency_key)` 唯一；并发双击只保存一个决定。 |
 | Pending Intent | 已经持久化、但后台副作用尚未完成的用户意图。 | M6 先保存 pending decision 再入内存队列，重启后可重新排队。 |
-| Worktree | Git 提供的额外工作目录，可让同一仓库的变更与原目录隔离。 | M7 在临时 Worktree 中应用 Patch 和测试，不改用户原仓库。 |
-| Patch | 描述代码变更的文本。 | IssuePilot 只生成并应用本地 Patch，不 Push 或创建真实 PR。 |
-| Unified Diff | 常见 Patch 格式，用 `+`、`-` 和上下文行表示文件改动。 | 页面用于展示待审查的精确代码差异。 |
+| Worktree | Git 提供的额外工作目录，可让同一仓库的变更与原目录隔离。 | M7 从固定 Commit 创建 Implementation Worktree；来源仓库保持 clean。 |
+| File Replacement | 用“文件路径、原内容 hash、完整新内容”描述一次受限修改。 | M7 模型只输出既有 `.py` 文件的结构化完整替换；后端校验后才写入 Worktree。 |
+| Patch | 描述代码变更的文本。 | M7 的 Patch 来自真实 Worktree 上的 Git Diff，只保存在本地，不 Commit、Push 或创建 PR。 |
+| Unified Diff | 常见 Patch 格式，用 `+`、`-` 和上下文行表示文件改动。 | M7 不直接执行模型 Diff，而由 Git 生成页面展示的规范差异。 |
+| Patch SHA256 | 对精确 Unified Diff 计算的 64 位十六进制指纹。 | 用户授权测试时必须带上所见 Patch hash，防止查看后内容被替换。 |
+| Implementation Run | 把一个已批准计划变成隔离代码修改的可审计执行记录。 | 保存计划版本、Commit、模型/Prompt/Graph 版本、状态和失败证据；每个 M7 task 只允许一个。 |
+| Test Run | 一次白名单测试执行及其不可变证据。 | 保存固定 argv、Runner 镜像、退出码、超时、耗时、受限 stdout/stderr 和完整输出 hash。 |
+| 固定 Runner | 只允许预先定义镜像、命令与资源边界的测试执行器。 | M7 只通过本机 Unix socket 使用无网络、非 root、只读 Worktree、双层超时的 Docker pytest Runner，绝不降级宿主机。 |
 | AST | 抽象语法树，把源代码解析成类、函数、导入等结构，而不是普通文本。 | M3 在隔离子进程中用标准库 AST 提取 Python 结构，不执行源码。 |
 | 限定名 | 带完整父作用域的符号名称，可区分不同类或函数中的同名符号。 | M3 保存 `Service.run` 等限定名，为 M4 符号检索提供依据。 |
 | Source Span | 一个语法结构在源码中的起止行范围。 | M3 保存符号的 `start_line/end_line`，让结果能引用真实位置。 |
@@ -56,9 +61,16 @@
 | waiting_approval | 当前 proposed 计划等待人工决定的业务状态。 | M6 页面停止轮询并展示批准、要求修改和拒绝按钮。 |
 | decision_pending | 审批意图已保存、后台尚在处理。 | 页面继续轮询；重启后由 PostgreSQL pending intent 重排。 |
 | revising | 本机模型正在按反馈生成计划新版本。 | 只修改 Plan，原 Issue、Analysis、Commit 与 Evidence 不变。 |
-| approved | 人工已确认当前计划。 | M6 终态；不表示代码已修改，也不会自动进入 M7。 |
+| approved | 人工已确认当前计划。 | M6 审批结果；M7 仍需另一次明确授权才会创建 Implementation Worktree 和生成 Patch。 |
 | rejected | 人工已拒绝当前计划。 | M6 终态；停止后续实现。 |
 | recovery_blocked | 恢复所需事实不一致，系统拒绝猜测下一节点。 | Checkpoint、业务表、Evidence 或 Worktree 任一不匹配时进入。 |
+| implementation_pending | M7 生成 Patch 的用户意图已持久化，等待后台消费。 | 服务重启可从业务表重排；尚未表示模型已开始或文件已写入。 |
+| generating_patch | M7 正在核对事实、创建隔离 Worktree、生成并验证 File Replacement。 | 浏览器继续轮询；来源仓库不应出现修改。 |
+| patch_ready | Git Diff 已保存并与 Implementation Worktree 一致，等待测试授权。 | 页面停止轮询并展示 Diff、Patch SHA256 和增删统计。 |
+| test_pending | 用户已携带预期 Patch hash 授权测试，等待后台消费。 | 该 intent 可在启动时安全重排，但不能绕过 Patch hash 核对。 |
+| testing | 固定容器正在执行白名单 pytest。 | 若进程中断后缺少完成证据，恢复进入 `recovery_blocked`，不会猜测或自动重跑。 |
+| tested | 固定 pytest 本次 exit code 为 0。 | 只是 M7 测试证据，不表示 M8 Review/质量 Gate 已通过，也不表示代码已 Commit。 |
+| test_failed | pytest 非零退出或超时，并已保存真实证据。 | 缺少项目依赖也会诚实进入此状态；不会联网安装或回退宿主机。 |
 | RQ | 基于 Redis 的 Python 后台任务队列，负责排队和由 Worker 消费任务。 | M2 仍未引入；观察到真实重启丢失、多实例或排队需求后再评估。 |
 | 质量 Gate | 只有满足测试、审查和边界条件才能进入下一阶段的门禁。 | M8 防止“模型说完成了”被当成真实完成。 |
 | ADR | Architecture Decision Record，记录某项架构选择的背景、决定、替代方案和后果。 | M0 用 ADR 保存关键取舍，方便以后知道“为什么当时这样选”。 |
@@ -73,3 +85,6 @@
 - **Redis 与 RQ**：Redis 是数据/消息基础设施；RQ 才提供任务入队和 Worker 消费语义。
 - **Snapshot 与工作区**：Snapshot 记录 Commit 和文件清单；工作区保存真实文件。恢复或读取结果时需要核对两者。
 - **任务失败与 API 失败**：克隆失败是已创建任务的业务结果，GET Task 仍返回 200；请求格式、数据库或工作区契约错误使用对应 HTTP 状态码。
+- **计划批准与 Patch 授权**：批准只确认“按这个计划做”；生成 Patch 会写隔离 Worktree，因此 M7 要求独立授权。
+- **Patch 授权与测试授权**：前者允许写隔离文件；后者会执行仓库代码，必须在用户查看精确 Diff 后再次授权并携带 Patch hash。
+- **test_failed 与系统故障**：pytest 找不到依赖、断言失败或超时是可展示的测试结果；Docker 镜像/服务不可用属于 Runner 故障，系统不会冒险改在宿主机运行。

@@ -4,6 +4,7 @@ import RepositoryTree from "@/components/repository-tree";
 import CodeStructure from "@/components/code-structure";
 import RetrievalResults from "@/components/retrieval-results";
 import PlanningResults from "@/components/planning-results";
+import ImplementationResults from "@/components/implementation-results";
 import type { Task } from "@/lib/api/tasks";
 import { useTaskStatus } from "@/lib/use-task-status";
 
@@ -56,13 +57,22 @@ function TaskSummary({ task, lastSyncedAt }: { task: Task; lastSyncedAt?: Date }
   const isRejected = task.status === "rejected";
   const isRecoveryBlocked = task.status === "recovery_blocked";
   const isFailed = task.status === "failed";
+  const isPatchReady = task.status === "patch_ready";
+  const isTested = task.status === "tested";
+  const isTestFailed = task.status === "test_failed";
   return (
     <>
       <div className="task-status-heading">
         <div>
           <p className="card-label">PERSISTED TASK</p>
           <h1>
-            {isApproved
+            {isTested
+              ? "本地 Patch 测试已通过"
+              : isTestFailed
+                ? "本地 Patch 测试未通过"
+                : isPatchReady
+                  ? "本地 Patch 等待测试授权"
+                  : isApproved
               ? "实施计划已批准"
               : isRejected
                 ? "实施计划已拒绝"
@@ -87,7 +97,7 @@ function TaskSummary({ task, lastSyncedAt }: { task: Task; lastSyncedAt?: Date }
         </div>
         <span
           className={`status-pill ${
-            task.status === "failed" || isRejected || isRecoveryBlocked
+            task.status === "failed" || isRejected || isRecoveryBlocked || isTestFailed
               ? "danger"
               : "success"
           }`}
@@ -98,8 +108,14 @@ function TaskSummary({ task, lastSyncedAt }: { task: Task; lastSyncedAt?: Date }
       </div>
       <TaskDetails task={task} />
       <p className="polling-note">
-        {isApproved
-          ? "人工已批准当前计划；M6 到此结束，尚未修改任何仓库代码。"
+        {isTested
+          ? "白名单 pytest 已在无网络受限容器中真实通过；M8 尚未执行代码审查。"
+          : isTestFailed
+            ? "Patch 已保留，pytest 返回失败证据；M7 不会自动修改或重试。"
+            : isPatchReady
+              ? "Patch 已写入隔离 Worktree；请先审查 Diff，再明确授权运行 pytest。"
+              : isApproved
+          ? "人工已批准当前计划；可以单独授权在隔离 Worktree 生成本地 Patch。"
           : isRejected
             ? "人工已拒绝当前计划；任务停止，不会进入代码修改。"
             : isRecoveryBlocked
@@ -146,6 +162,7 @@ export default function TaskStatusPanel({ taskId }: TaskStatusPanelProps) {
     codeStructure,
     retrieval,
     planning,
+    implementation,
     error,
     lastSyncedAt,
     refresh,
@@ -166,6 +183,24 @@ export default function TaskStatusPanel({ taskId }: TaskStatusPanelProps) {
           taskId={taskId}
           taskStatus={task.status}
           onDecisionSubmitted={refresh}
+        />
+      ) : null}
+      {planning && task && (implementation || [
+          "approved",
+          "implementation_pending",
+          "generating_patch",
+          "patch_ready",
+          "test_pending",
+          "testing",
+          "tested",
+          "test_failed",
+        ].includes(task.status)) ? (
+        <ImplementationResults
+          taskId={taskId}
+          taskStatus={task.status}
+          planVersion={planning.plan.version}
+          implementation={implementation}
+          onSubmitted={refresh}
         />
       ) : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Response, status
 
 from app.api.dependencies import (
     CodeIndexServiceDependency,
+    ImplementationQueueDependency,
+    ImplementationServiceDependency,
     PlanningServiceDependency,
     PlanningQueueDependency,
     RetrievalServiceDependency,
@@ -12,6 +14,11 @@ from app.api.dependencies import (
     TaskServiceDependency,
 )
 from app.schemas.code_index import CodeStructureResponse
+from app.schemas.implementation import (
+    ImplementationCreate,
+    ImplementationResponse,
+    TestRunCreate,
+)
 from app.schemas.planning import (
     PlanningDecisionCreate,
     PlanningDecisionResponse,
@@ -181,3 +188,75 @@ async def create_planning_decision(
         f"/api/v1/tasks/{task_id}/planning"
     )
     return decision
+
+
+@router.post(
+    "/{task_id}/implementation",
+    response_model=ImplementationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def create_implementation(
+    task_id: UUID,
+    payload: ImplementationCreate,
+    service: ImplementationServiceDependency,
+    queue: ImplementationQueueDependency,
+    response: Response,
+) -> ImplementationResponse:
+    implementation = await service.submit_implementation(task_id, payload)
+    if implementation.run.status in {"pending", "generating_patch"}:
+        queue.enqueue_implementation(implementation.run.implementation_run_id)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Location"] = f"/api/v1/tasks/{task_id}/implementation"
+    return implementation
+
+
+@router.get(
+    "/{task_id}/implementation",
+    response_model=ImplementationResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def get_implementation(
+    task_id: UUID,
+    service: ImplementationServiceDependency,
+    response: Response,
+) -> ImplementationResponse:
+    implementation = await service.get_implementation(task_id)
+    response.headers["Cache-Control"] = "no-store"
+    return implementation
+
+
+@router.post(
+    "/{task_id}/implementation/tests",
+    response_model=ImplementationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def create_implementation_test(
+    task_id: UUID,
+    payload: TestRunCreate,
+    service: ImplementationServiceDependency,
+    queue: ImplementationQueueDependency,
+    response: Response,
+) -> ImplementationResponse:
+    implementation = await service.submit_test(task_id, payload)
+    if implementation.test and implementation.test.status == "pending":
+        queue.enqueue_test(implementation.test.test_run_id)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Location"] = f"/api/v1/tasks/{task_id}/implementation"
+    return implementation

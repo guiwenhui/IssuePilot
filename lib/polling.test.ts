@@ -34,7 +34,7 @@ test("polling retries network and server failures only", () => {
 });
 
 
-test("task polling stops at M6 business terminal states", () => {
+test("task polling stops at M7 paused and terminal states", () => {
   assert.equal(shouldContinueTaskPolling("created"), true);
   assert.equal(shouldContinueTaskPolling("queued"), true);
   assert.equal(shouldContinueTaskPolling("cloning"), true);
@@ -48,6 +48,13 @@ test("task polling stops at M6 business terminal states", () => {
   assert.equal(shouldContinueTaskPolling("decision_pending"), true);
   assert.equal(shouldContinueTaskPolling("revising"), true);
   assert.equal(shouldContinueTaskPolling("approved"), false);
+  assert.equal(shouldContinueTaskPolling("implementation_pending"), true);
+  assert.equal(shouldContinueTaskPolling("generating_patch"), true);
+  assert.equal(shouldContinueTaskPolling("patch_ready"), false);
+  assert.equal(shouldContinueTaskPolling("test_pending"), true);
+  assert.equal(shouldContinueTaskPolling("testing"), true);
+  assert.equal(shouldContinueTaskPolling("tested"), false);
+  assert.equal(shouldContinueTaskPolling("test_failed"), false);
   assert.equal(shouldContinueTaskPolling("rejected"), false);
   assert.equal(shouldContinueTaskPolling("recovery_blocked"), false);
   assert.equal(shouldContinueTaskPolling("failed"), false);

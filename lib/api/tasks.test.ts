@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   ApiError,
   createTask,
+  createImplementation,
+  createImplementationTest,
   fetchCodeStructure,
+  fetchImplementation,
   fetchPlanning,
   fetchRetrieval,
   fetchRepositoryTree,
@@ -41,6 +44,41 @@ test("createTask posts the API contract", async () => {
   assert.deepEqual(await capturedRequest?.json(), {
     repository_url: task.repository_url,
     issue: task.issue,
+  });
+});
+
+test("M7 implementation APIs preserve explicit idempotent gates", async () => {
+  const requests: Request[] = [];
+  const implementation = {
+    run: { implementation_run_id: "33333333-3333-4333-8333-333333333333" },
+    patch: null,
+    test: null,
+  };
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json(implementation, { status: init?.method === "POST" ? 202 : 200 });
+  };
+
+  await fetchImplementation(task.task_id);
+  await createImplementation(
+    task.task_id,
+    2,
+    "11111111-1111-4111-8111-111111111111",
+  );
+  await createImplementationTest(
+    task.task_id,
+    "a".repeat(64),
+    "22222222-2222-4222-8222-222222222222",
+  );
+
+  assert.equal(requests[0].cache, "no-store");
+  assert.deepEqual(await requests[1].json(), {
+    expected_plan_version: 2,
+    idempotency_key: "11111111-1111-4111-8111-111111111111",
+  });
+  assert.deepEqual(await requests[2].json(), {
+    expected_patch_sha256: "a".repeat(64),
+    idempotency_key: "22222222-2222-4222-8222-222222222222",
   });
 });
 

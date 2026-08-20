@@ -34,10 +34,23 @@ def test_m5_task_states_are_explicit() -> None:
     assert TaskStatus.WAITING_APPROVAL.value == "waiting_approval"
 
 
+def test_m7_code_generation_has_a_separate_full_file_budget() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.implementation_llm_timeout_seconds == 300
+    assert settings.implementation_llm_context_window == 32_768
+    assert settings.implementation_llm_max_output_tokens == 16_384
+    assert settings.implementation_llm_max_response_bytes == 262_144
+    runtime = create_repository_runtime(settings)
+    assert runtime.llm_provider._max_output_tokens == 2_048
+    assert runtime.implementation_llm_provider._max_output_tokens == 16_384
+
+
 def test_planning_feature_flag_is_an_operational_fallback() -> None:
     settings = Settings(
         _env_file=None,
         planning_enabled=False,
+        implementation_enabled=False,
         llm_provider="hosted-provider-is-ignored",
         llm_base_url="https://example.com",
     )

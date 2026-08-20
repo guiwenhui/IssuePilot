@@ -13,11 +13,17 @@ from app.db.session import session_factory
 from app.schemas.planning import PlanningDecisionAction, PlanningDecisionCreate
 from app.services.planning_service import PlanningLimits, PlanningService
 from app.services.planning_store import SqlPlanningStore
+from app.services.implementation_service import ImplementationService
 from app.services.workspace import WorkspaceLimits, WorkspaceManager
 from tests.test_approval_store_integration import _clean, _planned_task
 from tests.test_approval_graph import ApprovalAdapter, graph_config
 from tests.test_planning_graph import FakeProvider
 from tests.test_planning_service import FakeGit
+from tests.test_implementation_service import (
+    PassingRunner,
+    ReplacementProvider,
+    service_fixture,
+)
 
 
 @pytest.mark.asyncio
@@ -154,6 +160,32 @@ async def test_pending_decision_resumes_in_new_service_runtime(
             await _clean(second_session, task_id)
 
 
+@pytest.mark.asyncio
+async def test_m7_patch_interrupt_resumes_with_new_postgres_factory(
+    tmp_path: Path,
+) -> None:
+    base, store, context, _, test_id = service_fixture(tmp_path)
+    first_factory = PostgresCheckpointFactory(
+        os.environ["DATABASE_URL"], "issuepilot_checkpoint"
+    )
+    second_factory = PostgresCheckpointFactory(
+        os.environ["DATABASE_URL"], "issuepilot_checkpoint"
+    )
+    first = _implementation_service(base, store, first_factory)
+    second = _implementation_service(base, store, second_factory)
+    try:
+        await first.process_implementation(context.run.id)
+        assert context.run.status == "patch_ready"
+
+        await second.process_test(test_id)
+
+        assert context.run.status == "tested"
+        assert store.saved_test_result.exit_code == 0
+    finally:
+        async with first_factory.saver() as saver:
+            await saver.adelete_thread(f"implementation:{context.run.id}")
+
+
 def _service(store, workspace, factory) -> PlanningService:
     return PlanningService(
         store,
@@ -164,4 +196,18 @@ def _service(store, workspace, factory) -> PlanningService:
         PlanningLimits(10, 3000, 20_000),
         factory,
         approval_enabled=True,
+    )
+
+
+def _implementation_service(base, store, factory) -> ImplementationService:
+    return ImplementationService(
+        store,
+        base._git,
+        base._source_workspace,
+        base._implementation_workspace,
+        base._patch_service,
+        ReplacementProvider(),
+        factory,
+        PassingRunner(),
+        True,
     )

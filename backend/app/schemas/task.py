@@ -24,6 +24,13 @@ class TaskStatus(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     RECOVERY_BLOCKED = "recovery_blocked"
+    IMPLEMENTATION_PENDING = "implementation_pending"
+    GENERATING_PATCH = "generating_patch"
+    PATCH_READY = "patch_ready"
+    TEST_PENDING = "test_pending"
+    TESTING = "testing"
+    TESTED = "tested"
+    TEST_FAILED = "test_failed"
     FAILED = "failed"
 
 

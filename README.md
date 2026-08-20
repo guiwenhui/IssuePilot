@@ -1,8 +1,8 @@
 # IssuePilot
 
-IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0–M6 已通过产品验收。用户可提交公开 GitHub 仓库和 Issue，后台完成隔离克隆、Python AST、三路混合检索和本地结构化规划；页面可批准、要求修改或拒绝计划。
+IssuePilot 是一个面向小型 Python 公开仓库的需求交付学习项目。M0–M7 已通过产品验收。用户可提交公开 GitHub 仓库和 Issue，后台完成隔离克隆、Python AST、三路混合检索、本地结构化规划、人工审批、隔离 Patch 和白名单测试。
 
-M6 将图升级为 PostgreSQL Checkpoint + Interrupt/Command。审批意图先写入业务表，再由单消费者恢复图；恢复前同时核对 Checkpoint、业务记录、Evidence hash 和真实 Worktree。要求修改只由本机 `qwen3:8b` 生成计划新版本。批准仍不修改代码，Patch 与测试属于 M7。
+M7 不把 M6 的计划批准直接当作文件写入授权。用户需先明确生成 Patch，系统才会从固定 Commit 创建独立 Git Worktree，让本机 `qwen3:8b` 输出受限的完整文件替换，并由 Git 生成规范 Unified Diff。用户查看 Diff 后还要再次授权，固定 Docker Runner 才会以无网络、非 root、只读仓库挂载方式执行 `python -m pytest -q -p no:cacheprovider`。测试失败也是有效证据，不会回退到宿主机或在线安装依赖。
 
 ## 当前架构
 
@@ -11,15 +11,17 @@ M6 将图升级为 PostgreSQL Checkpoint + Interrupt/Command。审批意图先�
 - SQLAlchemy Async + asyncpg：任务业务逻辑与 PostgreSQL 访问。
 - Alembic：显式管理数据库 Schema；应用启动时不会自动建表。
 - PostgreSQL 16 + pgvector：任务业务状态、代码 Chunk、向量和检索证据的权威来源。
-- 进程内单消费者队列：串行执行克隆和 M6 决定；pending 决定先持久化，启动时可重排，克隆队列仍不持久化。
-- Git CLI + 隔离工作区：以固定参数浅克隆，工作区是真实仓库文件的权威来源。
+- 进程内单消费者队列：串行执行克隆、M6 决定和 M7 实现；已持久化的 pending 决定与实现请求可在启动时重排，克隆队列仍不持久化。
+- Git CLI + 隔离工作区：以固定参数浅克隆；M7 从固定 Commit 创建独立 Worktree，来源仓库始终只读且保持 clean。
 - 隔离 Python Parser：以固定 argv 子进程运行标准库 AST，限制文件、字节、条目和时间。
 - PostgreSQL 代码索引：保存与固定 Commit 绑定的文件、符号、Import 和测试结构。
 - 本机 Ollama：使用 `qwen3-embedding:0.6b` 生成 1024 维文档与查询向量。
 - Retrieval Service：生成并确定性去重安全 Chunk，执行 FTS/Symbol/Vector exact scan、RRF 和规则重排。
 - LangGraph Planning：v2 在 persist 后 Interrupt；三种决定经 Command 恢复，计划修改有界循环。
+- LangGraph Implementation：独立 Checkpoint thread 生成并持久化 Patch，在测试授权点 Interrupt，再由 Command 恢复测试。
 - PostgreSQL Checkpointer：只保存节点执行状态，位于独立 schema；任务、计划和决定仍由业务表负责。
-- 本机 Chat Model：`qwen3:8b` 以 Structured Output 生成需求分析和实施计划。
+- 本机 Chat Model：`qwen3:8b` 以 Structured Output 生成需求分析、实施计划和 M7 File Replacement；规划与实现使用独立输出预算。
+- 固定 Docker Test Runner：只运行服务端白名单 pytest argv；固定镜像、无网络、非 root、只读 Worktree、资源/超时/输出限制，不允许宿主机降级。
 
 ## 本地运行
 
@@ -62,7 +64,15 @@ M6 将图升级为 PostgreSQL Checkpoint + Interrupt/Command。审批意图先�
    ollama pull qwen3:8b
    ```
 
-5. 复制环境变量并执行 migration：
+5. 构建 M7 固定 pytest Runner 镜像：
+
+   ```bash
+   docker build -t issuepilot-pytest-runner:m7 backend/runner
+   ```
+
+   Runner 镜像只包含固定 Python 与 pytest，不安装目标仓库依赖。容器内监督进程具有独立硬超时，服务重启也会按确定性容器名清理并确认遗留容器已消失。项目缺少依赖时会得到真实 `test_failed` 证据，而不是隐式联网安装或回退宿主机。
+
+6. 复制环境变量并执行 migration：
 
    ```bash
    cp .env.example .env
@@ -81,13 +91,13 @@ M6 将图升级为 PostgreSQL Checkpoint + Interrupt/Command。审批意图先�
      ../.venv/bin/python -m app.checkpoints.setup
    ```
 
-6. 在 `backend` 目录启动 API：
+7. 在 `backend` 目录启动 API：
 
    ```bash
    ../.venv/bin/uvicorn app.main:app --reload --port 8000
    ```
 
-7. 另开终端，在项目根目录启动网页：
+8. 另开终端，在项目根目录启动网页：
 
    ```bash
    npm run dev
@@ -104,9 +114,12 @@ M6 将图升级为 PostgreSQL Checkpoint + Interrupt/Command。审批意图先�
 - `GET /api/v1/tasks/{task_id}/retrieval`：在再次核对 Commit 与真实工作区后返回查询、模型、候选数、代码片段、通道排名和融合分数。
 - `GET /api/v1/tasks/{task_id}/planning`：返回当前计划版本、审批历史和已验证分析。
 - `POST /api/v1/tasks/{task_id}/planning/decisions`：以计划版本和幂等键接收 `approve/request_changes/reject`，返回 `202` pending decision。
+- `POST /api/v1/tasks/{task_id}/implementation`：以批准计划版本和幂等键请求生成隔离 Patch，返回 `202`。
+- `GET /api/v1/tasks/{task_id}/implementation`：重新核对来源仓库和实现 Worktree 后，返回 Run、Patch 与测试证据。
+- `POST /api/v1/tasks/{task_id}/implementation/tests`：以预期 Patch SHA256 和幂等键明确授权固定 pytest，返回 `202`。
 - 错误使用统一 `{ "error": { "code", "message", "details" } }` 结构；输入错误为 `422`，任务不存在为 `404`，快照未就绪/不一致为 `409`，数据库不可用为 `503`。
 
-系统继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。所有模型 URL 必须是无凭据 loopback HTTP。M6 不写文件、不执行命令、不生成 Patch；代码证据和修订反馈只发送给同机 Ollama。
+系统继续只接受无凭据、无端口、无查询参数的 `https://github.com/{owner}/{repo}`。所有模型 URL 必须是无凭据 loopback HTTP。M7 只改隔离 Worktree 内、同时出现在实施步骤和测试目标中的既有 tracked UTF-8 `.py` 文件；不新建、删除、重命名或 Commit。代码、Issue 和计划只发送给同机 Ollama。pytest 会执行不可信仓库代码，因此只能通过本机 Unix socket 进入固定容器，不接受 TCP/SSH 远程 Docker，也不进入宿主机。
 
 ## 验证命令
 
@@ -120,7 +133,9 @@ cd backend
 ../.venv/bin/python -m pytest --cov=app --cov-report=term-missing
 RUN_OLLAMA_LIVE=1 ../.venv/bin/python -m pytest tests/test_retrieval_evaluation.py -m ollama -s
 RUN_OLLAMA_LIVE=1 ../.venv/bin/python -m pytest tests/test_planning_evaluation.py -m ollama -s
+RUN_OLLAMA_LIVE=1 ../.venv/bin/python -m pytest tests/test_implementation_evaluation.py -m ollama -s
+RUN_DOCKER_LIVE=1 ../.venv/bin/python -m pytest tests/test_test_runner_docker.py -m docker -s
 ../.venv/bin/alembic -c alembic.ini current
 ```
 
-数据库集成测试需要本地 PostgreSQL 容器和已迁移的 `issuepilot_test`。可通过 `TEST_DATABASE_URL` 覆盖测试连接；测试不会使用 `DATABASE_URL` 中的开发业务库。项目不会自动 Commit、Push 或创建 PR。
+数据库集成测试需要本地 PostgreSQL 容器和已迁移的 `issuepilot_test`。可通过 `TEST_DATABASE_URL` 覆盖测试连接；测试不会使用 `DATABASE_URL` 中的开发业务库。真实 Docker 测试需先构建固定 Runner 镜像。M7 的 `tested` 只表示该次 pytest exit code 为 0，不代表 M8 审查或整个任务已完成。项目不会自动 Commit、Push 或创建 PR。
